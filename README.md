@@ -3,6 +3,7 @@
 > DeepSeek Harness 的单篇 arXiv 快速阅读插件：**粘一个 arXiv ID，几秒出中文速览；左侧 AI 速览/问答，右侧原文，可并排可单看**。
 > AI 用当前 DSH 会话的模型，并可在插件里随时切换（与输入框里的模型是同一份选择）。
 
+- npm：<https://www.npmjs.com/package/dsh-arxiv>
 - GitHub：<https://github.com/LyuYuxin/dsh-arxiv>
 
 ## 功能
@@ -16,29 +17,32 @@
 
 ## 安装（另一台电脑）
 
-前提：那台机器已安装并登录 DeepSeek Harness（桌面端至少启动过一次，profile 已初始化），并且能访问 GitHub。
+前提：那台机器已安装并登录 DeepSeek Harness（桌面端至少启动过一次，profile 已初始化）。
+
+**方式 A：从 npm 安装（推荐）**
 
 ```powershell
-# 1) 克隆仓库
+# 1) 装进桌面端 profile（CLI 会自动把 dsh-arxiv 加进 profile 的 bundle 列表）
+dsh plugin --profile desktop add dsh-arxiv
+
+# 找不到 dsh 命令时用桌面端自带的：
+# & "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add dsh-arxiv
+
+# 2) 重启 DeepSeek Harness（profile 只在启动时组合）
+```
+
+**方式 B：从 GitHub 源码安装**
+
+```powershell
 git clone https://github.com/LyuYuxin/dsh-arxiv.git
 cd dsh-arxiv
-
-# 2) 装进桌面端 profile（脚本会调用桌面端自带的 dsh CLI，并自动启用 bundle）
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
-
-# 3) 重启 DeepSeek Harness（profile 只在启动时组合）
+# 装到别的 profile（例如 dsh web）：-ProfileName web
+# 改源码后重跑 install.ps1 并重启应用
 ```
 
 重启后打开任一会话，顶部标签栏会出现 **arXiv 速读**（和 Chat / Trajectory 并列）。
 当前会话还一条消息都没有时 DSH 会隐藏标签栏，用已有会话或先发一条消息即可。
-
-想装到别的 profile（例如从终端跑 `dsh web`）：
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -ProfileName web
-```
-
-`install.ps1` 用 `file:` 把源码目录装进 profile，并自动启用 bundle；改动源码后需要重跑并重启应用。
 
 ### 卸载
 
