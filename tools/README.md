@@ -4,12 +4,17 @@ Isolated dev-instance harness for the `dsh-arxiv` DSH plugin. The tools never to
 the running desktop app or `%USERPROFILE%\.dsh`; everything lives in
 `%TEMP%\dsh-arxiv-dev` and a dedicated CLI `web` profile.
 
+v0.2 shape: the plugin is a **left-sidebar global panel** (`sidebar.panellist`
+id=arxiv + keyed `main` slot key=arxiv), not a conversation view tab. It has a
+target-session picker, a paper library with pins, attach-to-session, send-to-agent,
+send-selection, and the original-text/AI split view.
+
 | Tool | What it does |
 |---|---|
 | `tools/install-dev.mjs` | fresh `DSH_HOME`, copies credentials, installs `dsh-arxiv` into profile `web`, patches the default model, optionally junction-links the source |
 | `tools/boot.mjs` | spawns `dsh web --no-open --port <free>` with that `DSH_HOME`, waits for the printed URL, resolves the browser-session cookie, stays alive as the managed parent |
-| `tools/e2e.mjs` | full verification: boot manifest + client bundle + `/dsh-arxiv/health`, `/meta`, `/text`, real `/ai` summary + QA SSE, then Playwright Chrome for the UI |
-| `tools/client-dom.mjs` | browser-half proof without Chromium: mounts the real `client.js` in happy-dom + React, drives the live host routes, asserts every `data-axv` hook |
+| `tools/e2e.mjs` | full verification: boot manifest + client bundle + `/dsh-arxiv/health`, `/meta`, `/text`, `/text?body=1`, attach round trip, real `/ai` summary + QA SSE, then Playwright Chrome for the UI |
+| `tools/client-dom.mjs` | browser-half proof without Chromium: mounts the real `client.js` in happy-dom + React, fakes the DSH slots/session/layout/model services, drives the live host routes, asserts every `data-axv` hook |
 
 ## Prerequisites
 
@@ -82,18 +87,21 @@ node tools\e2e.mjs
 node tools\e2e.mjs --headed --keep-open     # visible browser, left open to inspect
 ```
 
-`--http-only` asserts (27 checks):
+`--http-only` asserts (40 checks):
 
 - `GET /` 200; `__DSH_BOOT__` parses; the `dsh-arxiv` client entry exists and
   `plugins/??dsh-arxiv/client.js&rev=...` returns 200 JS containing
   `__ModuleLoader__` and `[data-axv=root]`.
-- `GET /dsh-arxiv/health` → `{ok:true,name:"dsh-arxiv",version:"0.1.0"}`.
+- `GET /dsh-arxiv/health` → `{ok:true,name:"dsh-arxiv",version:...}`.
 - `GET /dsh-arxiv/meta?id=1706.03762` → `ok:true`, full title/authors/abstract.
 - `GET /dsh-arxiv/text?id=1706.03762` → `ok:true`, `source:"ar5iv"`, >1000 chars,
   and **no `text` field** (AI calls never ship the paper body).
 - `GET /dsh-arxiv/text?id=1706.03762&body=1` → the in-app 原文 pane opt-in: `text`
   is a string >20,000 chars, `chars` matches its length, it contains the paper
   title, and `source` is `ar5iv`/`arxiv-html`.
+- `POST /dsh-arxiv/attach` → GET → detach → GET round trip: the attached record
+  carries `id/baseId/title/primaryCategory/published`, detach (`paperId:null`)
+  clears it, and an empty/missing `sessionId` returns `{ok:false,bad-request}`.
 - `POST /dsh-arxiv/ai` (`mode:"summary"`, real `deepseek-account` model,
   `reasoningEffort:"low"`) streams `start` → `delta` (Chinese, contains
   `## 一句话总结`) → `done` with usage; then a `mode:"qa"` round for
@@ -101,29 +109,43 @@ node tools\e2e.mjs --headed --keep-open     # visible browser, left open to insp
 
 `client-dom.mjs` additionally mounts the real client bundle in happy-dom + React 18
 (the DOM library DSH's own client tests can use; this machine's Node 21 cannot load
-jsdom 29's ESM dependency graph). It asserts `[data-axv=root|query|import|model]`
-render, the model picker opens two `[data-axv=model-option]` rows and switches
-provider/model through a fake `modelDirectories` service, the `query` input enables
-`import`, `[data-axv=status]` shows while importing, `[data-axv=title]` becomes the
-full paper title, Chinese streams into `[data-axv=summary]` (including the
-`一句话总结` / `核心贡献` sections once markdown renders) and the streamed answer lands
-in `[data-axv=answer]`; it also asserts the summary request used the selected
-provider + lowest reasoning effort and the QA request kept the session effort.
+jsdom 29's ESM dependency graph) with fake DSH services:
 
-It also covers the original-text reading pane: `[data-axv=source]` renders,
-`[data-axv=source-text]` contains the paper title, ≥50 paragraph/heading blocks and
->20,000 rendered chars, `[data-axv=source-copy]` exists, and the segmented control
-`[data-axv=mode-split|mode-ai|mode-source]` starts with split `data-active="true"`
-and toggles both `data-active` and the `.axv-workspace` class
-(`axv-mode-split`/`ai`/`source`). A clean run also asserts there were **no React
-warnings/errors** in the console capture. Artifacts: `test-artifacts/dom-snapshot.html`,
-`dom-summary.txt`, `dom-qa.txt`, `dom-source-text.txt`, `dom-report.json`.
+- **Registration**: `apply()` injects `sidebar.panellist` (id `arxiv`, order 20,
+  label function) and the keyed `main` slot (`key:'arxiv'`), and injects the
+  `style[data-plugin="dsh-arxiv"]` element.
+- **Panel shell**: `[data-axv=panel]`, `[data-axv=session]`, `query`, `import`,
+  `model`, `[data-axv=library]`/`library-item`/`pin`; the seed library star
+  toggles and persists, pinned papers sort first.
+- **Target session**: the fake `useSessions` provides two root sessions; the
+  trigger shows the first, switching via `[data-axv=session-option]` updates it and
+  persists `dsh-arxiv.targetSession`.
+- **Model/import/summary/QA**: model picker switches provider/model, importing
+  `1706.03762` shows the full title, `[data-axv=status]` appears while importing,
+  Chinese streams into `[data-axv=summary]` (一句话总结/核心贡献), the answer lands
+  in `[data-axv=answer]`, and the summary request carries the lowest reasoning
+  effort while QA keeps the session effort.
+- **Original-text pane**: `[data-axv=source]`, `[data-axv=source-text]` (paper
+  title, ≥50 blocks, >20,000 chars), `[data-axv=source-copy]`,
+  `[data-axv=send-selection]`, and the `mode-split|ai|source` segmented control
+  toggling `data-active` plus the `.axv-workspace` `axv-mode-*` class.
+- **Session actions**: the panel GETs `/dsh-arxiv/attach` for the target session
+  (fake store); clicking `[data-axv=attach]` POSTs the paper, flips
+  `data-attached="true"` and shows `[data-axv=notice]`; clicking again POSTs
+  `paperId:null`; `[data-axv=send-agent]` goes through
+  `ctx.get('sessions').using` → `prompt` with text containing the arXiv id and
+  title, then calls `layout.selectPanel(null)`; `[data-axv=send-selection]` with an
+  empty selection only shows a notice.
+- A clean run also asserts there were **no React warnings/errors** in the console
+  capture. Artifacts: `dom-snapshot.html`, `dom-summary.txt`, `dom-qa.txt`,
+  `dom-source-text.txt`, `dom-report.json`.
 
-The full browser run drives the same assertions through the real app shell: opens
-the `arXiv 速读` view tab, imports the paper, waits for the streamed summary and a
-QA answer, checks the original-text pane and mode switch, opens the model picker,
-and saves full-page screenshots `test-artifacts/e2e-*.png`, plus `e2e-report.json`,
-`boot-manifest.json`, `meta.json`, `summary.txt`, `qa.txt`, `source-text.txt`.
+The full browser run drives the panel flow through the real app shell: clicks the
+sidebar `arXiv` button, imports the paper, checks the source pane and mode switch,
+then (when a target session exists) summary/QA/model picker/attach, saving
+full-page screenshots `test-artifacts/e2e-*.png` plus `e2e-report.json`,
+`boot-manifest.json`, `meta.json`, `summary.txt`, `qa.txt`, `source-text.txt`,
+`attach.json`.
 
 ## Debugging
 
@@ -158,3 +180,34 @@ node C:\Users\10174\Documents\deepseek-harness\default-workspace\dsh-arxiv\tools
 
 Firefox is not a fallback: Playwright's Firefox transport is also a pipe, and the
 browser downloader itself spawns a piped child (`spawn EPERM`).
+
+## Real browser through the DSH browser tool
+
+The `dsh-browser` capability runs system Chrome **outside** this sandbox and exposes
+read-only page access plus approval-gated interaction:
+
+```
+browser_call {action:"target.open", args:{url:"<token url from boot.mjs>"}}
+browser_call {action:"observe.read", args:{sections:["controls"]}}
+browser_call {action:"observe.screenshot", args:{}}
+```
+
+`observe.read` returned the shell's control list with
+`{role:"button", name:"arXiv", visible:true, disabled:false}` — the sidebar panel
+entry is really rendered by the app — and `observe.screenshot` produced
+`test-artifacts/browser-shell-1.png` / `browser-shell-2.png` (sidebar shows
+插件 / 自动化任务 / **arXiv** / 更多), recorded in `browser-observe.json`. Opening
+the panel itself needs `act.click` on that button (and first 「继续」 if the first-run
+dialog is up), and `act.*` is `directInteractionPolicy: "ask"`: this agent session's
+approvals are auto-rejected, so the interaction half cannot run here. From a session
+that can approve, the sequence is:
+
+```
+act.click {locator:{role:"button", name:"继续"}}
+act.click {locator:{role:"button", name:"arXiv"}}
+act.wait  {locator:{selector:"[data-axv=\"panel\"]"}}
+observe.screenshot {}
+```
+
+An unrestricted PowerShell can run the whole interactive pass instead:
+`node tools\e2e.mjs` (or `--headed --keep-open` to watch it).

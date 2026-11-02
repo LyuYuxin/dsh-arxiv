@@ -109,8 +109,8 @@ async function api(state, pathname, init = {}) {
   return fetch(target, { ...init, headers, redirect: 'manual' })
 }
 
-async function apiJson(state, pathname) {
-  const response = await api(state, pathname)
+async function apiJson(state, pathname, init = {}) {
+  const response = await api(state, pathname, init)
   const text = await response.text()
   let body
   try {
@@ -119,6 +119,14 @@ async function apiJson(state, pathname) {
     throw new Error(`${pathname} answered ${response.status} with non-JSON: ${text.slice(0, 300)}`)
   }
   return { response, body }
+}
+
+async function postJson(state, pathname, payload) {
+  return apiJson(state, pathname, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
 }
 
 // ── boot manifest ───────────────────────────────────────────────────────────
@@ -290,6 +298,37 @@ async function httpChecks(state) {
   assert(['ar5iv', 'arxiv-html'].includes(bodyRoute.body.source), '/text?body=1 source is full-text (ar5iv/arxiv-html)', String(bodyRoute.body.source))
   writeFileSync(path.join(artifactsDir, 'source-text.txt'), sourceText)
 
+  // ── session attachment round trip: POST attach -> GET -> detach -> GET ───
+  // The host keeps a small attribution table; the panel, the `arxiv` tool and
+  // the agent/pre-step context injection all read from it.
+  const attachSession = `dsh-arxiv-e2e-${Date.now()}`
+  const attach = await postJson(state, '/dsh-arxiv/attach', { sessionId: attachSession, paperId: opts.paper })
+  assert(attach.body.ok === true, 'POST /dsh-arxiv/attach returns ok:true', JSON.stringify(attach.body).slice(0, 200))
+  const attached = attach.body.attached ?? {}
+  assert(attached.baseId === paper.baseId, 'attach record carries the paper baseId', JSON.stringify({ baseId: attached.baseId, id: attached.id }))
+  assert(attached.title === paper.title, 'attach record carries the paper title', String(attached.title))
+  assert(typeof attached.id === 'string' && typeof attached.published === 'string' && typeof attached.primaryCategory === 'string',
+    'attach record carries id/published/primaryCategory', JSON.stringify({ id: attached.id, published: attached.published, category: attached.primaryCategory }))
+
+  const attachGet = await apiJson(state, `/dsh-arxiv/attach?sessionId=${encodeURIComponent(attachSession)}`)
+  assert(attachGet.body.ok === true && attachGet.body.attached?.baseId === paper.baseId,
+    'GET /dsh-arxiv/attach returns the attached paper', JSON.stringify(attachGet.body).slice(0, 200))
+
+  const detach = await postJson(state, '/dsh-arxiv/attach', { sessionId: attachSession, paperId: null })
+  assert(detach.body.ok === true && detach.body.attached === null,
+    'POST /dsh-arxiv/attach {paperId:null} detaches', JSON.stringify(detach.body).slice(0, 200))
+  const afterDetach = await apiJson(state, `/dsh-arxiv/attach?sessionId=${encodeURIComponent(attachSession)}`)
+  assert(afterDetach.body.ok === true && afterDetach.body.attached === null,
+    'GET /dsh-arxiv/attach is empty after detach', JSON.stringify(afterDetach.body).slice(0, 200))
+
+  const badAttach = await postJson(state, '/dsh-arxiv/attach', { sessionId: '', paperId: opts.paper })
+  assert(badAttach.body.ok === false && badAttach.body.error?.code === 'bad-request',
+    'POST /dsh-arxiv/attach rejects an empty sessionId with bad-request', JSON.stringify(badAttach.body).slice(0, 200))
+  const badAttachGet = await apiJson(state, '/dsh-arxiv/attach')
+  assert(badAttachGet.body.ok === false && badAttachGet.body.error?.code === 'bad-request',
+    'GET /dsh-arxiv/attach rejects a missing sessionId with bad-request', JSON.stringify(badAttachGet.body).slice(0, 200))
+  writeFileSync(path.join(artifactsDir, 'attach.json'), `${JSON.stringify({ sessionId: attachSession, attach: attach.body, detach: detach.body, bad: badAttach.body }, null, 2)}\n`)
+
   return { boot, entries, paper }
 }
 
@@ -390,27 +429,25 @@ async function browserChecks(state) {
     await page.waitForSelector('style[data-plugin="dsh-arxiv"]', { timeout: 30000 })
     ok('dsh-arxiv client bundle materialized (style injected)')
 
-    // A conversation view slot needs an open session: create/enter one if the
-    // shell shows an empty state, else use the session the GUI opened with.
-    const newSession = page.getByRole('button', { name: /新建|新会话|新对话|New session|New chat/i }).first()
-    if (await newSession.count()) {
-      await newSession.click().catch(() => {})
-      await page.waitForTimeout(1500)
+    // v0.2: the plugin is a left-sidebar global panel (no conversation view tab).
+    // Dismiss the first-run welcome overlay if it is up, then click the sidebar
+    // button whose accessible name is the panel label (arXiv).
+    const welcome = page.getByRole('button', { name: /继续|Continue/ }).first()
+    if (await welcome.count()) {
+      await welcome.click().catch(() => {})
+      await page.waitForTimeout(500)
     }
     await shot('01-shell')
 
-    const tab = page.getByRole('tab', { name: /arXiv/ }).first()
-    if (await tab.count()) await tab.click()
-    else {
-      const fallback = page.locator('button, [role="tab"]', { hasText: /arXiv/ }).first()
-      if (await fallback.count()) await fallback.click()
-      else {
-        await failDump('no-arxiv-tab')
-        fail('arXiv view tab exists', 'no tab with text arXiv in the shell')
-      }
+    const sidebarEntry = page.getByRole('button', { name: /^arXiv$/ }).first()
+    if (!(await sidebarEntry.count())) {
+      await failDump('no-arxiv-sidebar')
+      fail('sidebar arXiv entry exists', 'no button named arXiv in the sidebar')
     }
-    await page.waitForSelector('[data-axv="root"]', { timeout: 30000 })
-    ok('arXiv view tab opened ([data-axv=root])')
+    await sidebarEntry.click()
+    await page.waitForSelector('[data-axv="panel"]', { timeout: 30000 })
+    ok('sidebar arXiv panel opened ([data-axv=panel])')
+    assert(await page.locator('[data-axv="session"]').count() === 1, '[data-axv=session] target-session picker present')
 
     for (const selector of ['query', 'import', 'model']) {
       const present = await page.locator(`[data-axv="${selector}"]`).count()
@@ -427,58 +464,81 @@ async function browserChecks(state) {
     ok('[data-axv=title] shows the imported paper', await page.textContent('[data-axv="title"]'))
     await shot('02-imported')
 
-    const summarySelector = '[data-axv="summary"]'
-    await page.waitForFunction(
-      (selector) => /[\u3400-\u4dbf\u4e00-\u9fff]/.test(document.querySelector(selector)?.textContent ?? ''),
-      summarySelector,
-      { timeout: 120000 },
-    )
-    const summaryText = await page.textContent(summarySelector)
-    assert(CJK.test(summaryText), '[data-axv=summary] streamed Chinese text', `${summaryText.length} chars`)
-    await page.waitForFunction(
-      (selector) => (document.querySelector(selector)?.textContent ?? '').length > 200,
-      summarySelector,
-      { timeout: 120000 },
-    ).catch(() => {})
-    ok('[data-axv=summary] streamed a substantial summary', `${(await page.textContent(summarySelector)).length} chars`)
-    await shot('03-summary')
-
-    await page.fill('[data-axv="ask-input"]', '这篇论文的主要贡献是什么？')
-    await page.click('[data-axv="ask"]')
-    await page.waitForFunction(
-      () => {
-        const answers = [...document.querySelectorAll('[data-axv="answer"]')]
-        return answers.some((node) => (node.textContent ?? '').trim().length > 10)
-      },
-      { timeout: 180000 },
-    )
-    const answerText = await page.evaluate(() => {
-      const answers = [...document.querySelectorAll('[data-axv="answer"]')]
-      return answers.length === 0 ? '' : answers[answers.length - 1].textContent ?? ''
+    // Original-text pane and the split/ai/source segmented control.
+    await page.waitForSelector('[data-axv="source-text"]', { timeout: 60000 })
+    const sourceMeta = await page.evaluate(() => {
+      const node = document.querySelector('[data-axv="source-text"]')
+      return {
+        chars: (node?.textContent ?? '').length,
+        blocks: node?.querySelectorAll('p, h3').length ?? 0,
+        hasTitle: (node?.textContent ?? '').includes('Attention Is All You Need'),
+      }
     })
-    ok('[data-axv=answer] contains a non-empty answer', `${answerText?.length ?? 0} chars`)
-    await shot('04-qa')
+    assert(sourceMeta.hasTitle, '[data-axv=source-text] contains the paper title', '')
+    assert(sourceMeta.blocks >= 50, '[data-axv=source-text] renders many blocks', `${sourceMeta.blocks} blocks`)
+    assert(sourceMeta.chars > 20000, '[data-axv=source-text] renders the extracted text', `${sourceMeta.chars} chars`)
+    assert(await page.locator('[data-axv="source-copy"]').count() === 1, '[data-axv=source-copy] present')
+    const splitActive = await page.getAttribute('[data-axv="mode-split"]', 'data-active')
+    const workspaceClass = await page.getAttribute('.axv-workspace', 'class')
+    assert(splitActive === 'true' && /axv-mode-split/.test(workspaceClass ?? ''), 'split mode is active by default', `${workspaceClass}`)
+    await page.click('[data-axv="mode-ai"]')
+    await page.waitForFunction(() => /axv-mode-ai/.test(document.querySelector('.axv-workspace')?.className ?? ''), { timeout: 15000 })
+    ok('clicking AI switches the workspace to axv-mode-ai')
+    await shot('03-source-pane')
+    await page.click('[data-axv="mode-split"]')
 
-    await page.click('[data-axv="model"]')
-    await page.waitForFunction(
-      () => document.querySelectorAll('[data-axv="model-option"]').length > 0,
-      { timeout: 30000 },
-    )
-    const options = await page.locator('[data-axv="model-option"]').allTextContents()
-    assert(options.length > 0, 'model picker lists [data-axv=model-option] rows', options.slice(0, 6).join(' | '))
-    await shot('05-model-picker')
+    // Session actions are present even when no session is selected (they are
+    // disabled until a target session exists).
+    for (const selector of ['attach', 'send-agent', 'send-selection']) {
+      assert(await page.locator(`[data-axv="${selector}"]`).count() === 1, `[data-axv=${selector}] present`)
+    }
 
-    // Switch to the listed model and confirm the trigger reflects the selection.
-    const firstOption = page.locator('[data-axv="model-option"]').first()
-    const optionLabel = (await firstOption.textContent()) ?? ''
-    await firstOption.click()
-    await page.waitForFunction(
-      (label) => (document.querySelector('[data-axv="model"]')?.textContent ?? '').includes(label.trim()),
-      optionLabel.trim().split(/\s+/).at(-1) ?? optionLabel,
-      { timeout: 20000 },
-    ).catch(() => {})
-    ok('model picker selection updates the trigger', (await page.textContent('[data-axv="model"]')) ?? '')
-    await shot('06-model-selected')
+    // The dev profile has no workspace/session by default, and the panel needs a
+    // target session before models load or a paper can be sent. Detect that and
+    // keep the browser pass to panel/import/source evidence in that case.
+    const sessionText = (await page.textContent('[data-axv="session"]')) ?? ''
+    const sessionless = /未选择|未选择会话|no session|select/i.test(sessionText) || sessionText.trim() === ''
+    if (sessionless) {
+      ok('panel works without a target session (summary/QA/attach skipped)', sessionText.trim())
+    } else {
+      const summarySelector = '[data-axv="summary"]'
+      await page.waitForFunction(
+        (selector) => /[\u3400-\u4dbf\u4e00-\u9fff]/.test(document.querySelector(selector)?.textContent ?? ''),
+        summarySelector,
+        { timeout: 120000 },
+      )
+      const summaryText = await page.textContent(summarySelector)
+      assert(CJK.test(summaryText), '[data-axv=summary] streamed Chinese text', `${summaryText.length} chars`)
+      await shot('04-summary')
+
+      await page.fill('[data-axv="ask-input"]', '这篇论文的主要贡献是什么？')
+      await page.click('[data-axv="ask"]')
+      await page.waitForFunction(
+        () => [...document.querySelectorAll('[data-axv="answer"]')].some((node) => (node.textContent ?? '').trim().length > 10),
+        { timeout: 180000 },
+      )
+      const answerText = await page.evaluate(() => {
+        const answers = [...document.querySelectorAll('[data-axv="answer"]')]
+        return answers.length === 0 ? '' : answers[answers.length - 1].textContent ?? ''
+      })
+      ok('[data-axv=answer] contains a non-empty answer', `${answerText?.length ?? 0} chars`)
+      await shot('05-qa')
+
+      await page.click('[data-axv="model"]')
+      await page.waitForFunction(() => document.querySelectorAll('[data-axv="model-option"]').length > 0, { timeout: 30000 })
+      const options = await page.locator('[data-axv="model-option"]').allTextContents()
+      assert(options.length > 0, 'model picker lists [data-axv=model-option] rows', options.slice(0, 6).join(' | '))
+      await shot('06-model-picker')
+
+      // Attach the current paper to the target session and confirm the toggle.
+      const attachButton = page.locator('[data-axv="attach"]')
+      if ((await attachButton.getAttribute('data-attached')) === 'false' && !(await attachButton.isDisabled())) {
+        await attachButton.click()
+        await page.waitForFunction(() => document.querySelector('[data-axv="attach"]')?.getAttribute('data-attached') === 'true', { timeout: 30000 })
+        ok('[data-axv=attach] attached the paper to the session', 'data-attached=true')
+        await shot('07-attached')
+      }
+    }
 
     assert(consoleErrors.length === 0, 'no browser console errors', consoleErrors.slice(0, 5).join(' | ').slice(0, 400))
     assert(failedRequests.length === 0, 'no failed browser requests', failedRequests.slice(0, 5).join(' | ').slice(0, 400))

@@ -5,16 +5,25 @@
 //
 //   node tools/client-dom.mjs [--paper 1706.03762]
 //
+// v0.2 shape: the plugin registers a left-sidebar global panel instead of a
+// conversation.view tab — `sidebar.panellist` id=arxiv (icon) plus the keyed
+// `main` slot key=arxiv (panel body). The panel is root-scoped, so the target
+// session comes from a fake `useSessions` prop and `ctx.get('sessions')` is used
+// by the send-to-agent face. `/dsh-arxiv/attach` is answered by a fake store so
+// attach/detach is deterministic while meta/text/ai still hit the live dev host.
+//
 // Why not a real browser: Chromium cannot start inside this session's DSH sandbox
 // (the restricted token + job object deny Chromium's Mojo pipes, so Chrome/Edge
 // die on startup). This exercises the same client.js the web app loads, with
-// React, localStorage, a modelDirectories stub, and the live dev-host HTTP+SSE
-// routes; only pixels/layout are missing. The full Playwright pass is tools/e2e.mjs.
+// React, localStorage, fake sessions/layout/model services, and the live
+// dev-host HTTP+SSE routes; only pixels/layout are missing. The full Playwright
+// pass is tools/e2e.mjs, and tools/browser-shot.mjs takes a real-browser shell
+// screenshot through the DSH browser tool.
 //
 // Exit codes: 0 pass, 1 assertion failure, 2 usage.
 
 import { createRequire } from 'node:module'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -92,43 +101,14 @@ globalThis.cancelAnimationFrame = (handle) => win.cancelAnimationFrame(handle)
 const React = require('react')
 const ReactDOM = require('react-dom/client')
 
-// ── fetch shim: resolve relative /dsh-arxiv routes against the dev host and
-//    attach the browser-session cookie, preserving streamed SSE bodies ──────
-// Capture the real fetch before overriding globalThis.fetch (the client calls
-// the bare global), otherwise the shim would call itself.
-const nodeFetch = globalThis.fetch.bind(globalThis)
-const aiRequests = []
-globalThis.fetch = async (input, init = {}) => {
-  const url = /^https?:/i.test(String(input)) ? String(input) : new URL(String(input), `${origin}/`).href
-  const headers = new Headers(init.headers ?? {})
-  if (cookie) headers.set('cookie', cookie)
-  if (url.endsWith('/dsh-arxiv/ai') && typeof init.body === 'string') {
-    try {
-      aiRequests.push(JSON.parse(init.body))
-    } catch {
-      // ignore malformed body (the client never sends one)
-    }
-  }
-  return nodeFetch(url, { ...init, headers })
-}
+// Seed the library so the panel renders its library chips and pin toggles before
+// any import has happened.
+win.localStorage.setItem('dsh-arxiv.library', JSON.stringify([
+  { id: '1706.03762', title: 'Attention Is All You Need', pinned: false, updatedAt: 1 },
+  { id: '2005.14165', title: 'Language Models are Few-Shot Learners', pinned: true, updatedAt: 2 },
+]))
 
-// ── load the real client bundle the way the platform does ──────────────────
-const bundleSource = readFileSync(path.join(pluginRoot, 'client.js'), 'utf8')
-const loaded = []
-win.__ModuleLoader__ = { load: (definition) => loaded.push(definition) }
-// eslint-disable-next-line no-new-func
-new Function(bundleSource)()
-assert(loaded.length === 1, 'client.js registers exactly one __ModuleLoader__ definition', `id=${loaded[0]?.id}`)
-assert(loaded[0].id === 'dsh-arxiv', 'client module id is dsh-arxiv', loaded[0].id)
-assert(typeof loaded[0].factory === 'function', 'client module exposes a factory')
-
-const mod = loaded[0].factory((name) => {
-  if (name === 'react') return React
-  throw new Error(`unexpected require(${JSON.stringify(name)})`)
-})
-assert(Array.isArray(mod.inject) && mod.inject.includes('slots'), 'client module injects slots', JSON.stringify(mod.inject))
-
-// ── fake plugin context: capture the conversation.view registration ────────
+// ── fake services / slot registrations ─────────────────────────────────────
 const modelState = {
   // A normal DSH session carries the selected reasoning effort; summaries ask for
   // the model's lowest effort so hidden thinking cannot eat the output budget.
@@ -159,30 +139,139 @@ const modelDirectories = {
     }
   },
 }
-const registration = { spec: null, component: null, slotNames: [] }
+
+// Two root sessions for the target-session picker. The real hook returns a state
+// with ids/byId; ours is static, which is enough to render and switch.
+const fakeSessionState = {
+  ids: ['sess-alpha', 'sess-beta'],
+  byId: {
+    'sess-alpha': { id: 'sess-alpha', displayTitle: 'Alpha 论文会话', origin: 'root', updatedAt: 2 },
+    'sess-beta': { id: 'sess-beta', displayTitle: 'Beta 论文会话', origin: 'root', updatedAt: 1 },
+  },
+}
+const useSessions = (selector) => selector(fakeSessionState)
+
+const promptCalls = []
+const sessionsService = {
+  async using(sessionId, options, callback) {
+    const reference = {
+      binding: {
+        session: {
+          async prompt(parts, mode) {
+            promptCalls.push({ sessionId, options, parts, mode })
+          },
+        },
+      },
+    }
+    await callback(reference)
+    return { ok: true }
+  },
+}
+const layoutCalls = []
+const layoutService = { selectPanel: (panelId) => layoutCalls.push(panelId) }
+
+const slotNames = []
+const registrations = {}
 const fakeCtx = {
   effect: (callback) => {
     const dispose = callback()
     return typeof dispose === 'function' ? dispose : () => {}
   },
   locale: { register: () => () => {}, bind: () => (key) => key },
-  get: (name) => (name === 'modelDirectories' ? modelDirectories : undefined),
+  get: (name) => {
+    if (name === 'modelDirectories') return modelDirectories
+    if (name === 'sessions') return sessionsService
+    if (name === 'layout') return layoutService
+    return undefined
+  },
   slots: {
     inject(name, callback) {
-      registration.slotNames.push(name)
+      slotNames.push(name)
       callback()
     },
     register(spec, component) {
-      registration.spec = spec
-      registration.component = component
+      registrations[spec.name] = { spec, component }
       return () => {}
     },
   },
 }
+
+// ── fetch shim: real host routes, fake /dsh-arxiv/attach store ─────────────
+// Capture the real fetch before overriding globalThis.fetch (the client calls
+// the bare global), otherwise the shim would call itself.
+const nodeFetch = globalThis.fetch.bind(globalThis)
+const aiRequests = []
+const attachCalls = []
+let fakeAttached = null
+const jsonResponse = (body) => new Response(JSON.stringify(body), {
+  status: 200,
+  headers: { 'content-type': 'application/json' },
+})
+
+globalThis.fetch = async (input, init = {}) => {
+  const url = /^https?:/i.test(String(input)) ? String(input) : new URL(String(input), `${origin}/`).href
+  const method = String(init.method ?? 'GET').toUpperCase()
+  if (url.includes('/dsh-arxiv/attach')) {
+    if (method === 'GET') {
+      const sessionId = new URL(url).searchParams.get('sessionId')
+      attachCalls.push({ method, sessionId })
+      return jsonResponse({ ok: true, attached: fakeAttached })
+    }
+    const body = typeof init.body === 'string' ? JSON.parse(init.body) : {}
+    attachCalls.push({ method, sessionId: body.sessionId, paperId: body.paperId ?? null })
+    if (body.paperId === null || body.paperId === undefined) {
+      fakeAttached = null
+    } else {
+      const baseId = String(body.paperId).replace(/v\d+$/, '')
+      fakeAttached = {
+        id: body.paperId,
+        baseId,
+        title: 'Attention Is All You Need',
+        primaryCategory: 'cs.CL',
+        published: '2017-06-12',
+      }
+    }
+    return jsonResponse({ ok: true, attached: fakeAttached })
+  }
+  const headers = new Headers(init.headers ?? {})
+  if (cookie) headers.set('cookie', cookie)
+  if (url.endsWith('/dsh-arxiv/ai') && typeof init.body === 'string') {
+    try {
+      aiRequests.push(JSON.parse(init.body))
+    } catch {
+      // ignore malformed body (the client never sends one)
+    }
+  }
+  return nodeFetch(url, { ...init, headers })
+}
+
+// ── load the real client bundle the way the platform does ──────────────────
+const bundleSource = readFileSync(path.join(pluginRoot, 'client.js'), 'utf8')
+const loaded = []
+win.__ModuleLoader__ = { load: (definition) => loaded.push(definition) }
+// eslint-disable-next-line no-new-func
+new Function(bundleSource)()
+assert(loaded.length === 1, 'client.js registers exactly one __ModuleLoader__ definition', `id=${loaded[0]?.id}`)
+assert(loaded[0].id === 'dsh-arxiv', 'client module id is dsh-arxiv', loaded[0].id)
+assert(typeof loaded[0].factory === 'function', 'client module exposes a factory')
+
+const mod = loaded[0].factory((name) => {
+  if (name === 'react') return React
+  throw new Error(`unexpected require(${JSON.stringify(name)})`)
+})
+assert(Array.isArray(mod.inject) && mod.inject.includes('slots'), 'client module injects slots', JSON.stringify(mod.inject))
+
+// ── apply(): capture both v0.2 slot registrations ─────────────────────────
 mod.apply(fakeCtx)
-assert(registration.slotNames.includes('conversation.view'), 'apply() injects into the conversation.view slot', registration.slotNames.join(','))
-assert(registration.component !== null, 'conversation.view component captured')
-assert(registration.spec?.id === 'arxiv', 'view tab id is arxiv', JSON.stringify(registration.spec))
+assert(slotNames.includes('sidebar.panellist'), 'apply() injects into the sidebar.panellist slot', slotNames.join(','))
+assert(slotNames.includes('main'), 'apply() injects into the keyed main slot', slotNames.join(','))
+const panellist = registrations['sidebar.panellist']
+const mainPanel = registrations.main
+assert(panellist !== undefined && mainPanel !== undefined, 'both slot registrations were captured')
+assert(panellist.spec.id === 'arxiv', 'sidebar.panellist registration id is arxiv', JSON.stringify({ id: panellist.spec.id, order: panellist.spec.order }))
+assert(typeof panellist.spec.label === 'function' && typeof panellist.spec.label() === 'string', 'panellist has a label function', String(panellist.spec.label?.()))
+assert(mainPanel.spec.name === 'main' && mainPanel.spec.key === 'arxiv', 'main registration is keyed main/arxiv', JSON.stringify({ name: mainPanel.spec.name, key: mainPanel.spec.key }))
+assert(typeof panellist.component === 'function' && typeof mainPanel.component === 'function', 'both registrations have components')
 assert(win.document.querySelector('style[data-plugin="dsh-arxiv"]') !== null, 'apply() injects the axv style element')
 
 // React dev-mode warnings go through console.error; capture them so the run can
@@ -199,11 +288,12 @@ console.warn = (...parts) => {
   originalConsoleWarn(...parts)
 }
 
-// ── render the view ────────────────────────────────────────────────────────
+// ── render the panel body (the `main` slot component) ──────────────────────
 const root = ReactDOM.createRoot(win.document.getElementById('app'))
-root.render(React.createElement(registration.component, { sessionId: 'dom-session' }))
+root.render(React.createElement(mainPanel.component, { useSessions }))
 const text = (selector) => win.document.querySelector(selector)?.textContent ?? ''
 const count = (selector) => win.document.querySelectorAll(selector).length
+const attr = (selector, name) => win.document.querySelector(selector)?.getAttribute(name) ?? null
 const setInput = (selector, value) => {
   const element = win.document.querySelector(selector)
   if (element === null) throw new Error(`missing ${selector}`)
@@ -221,31 +311,58 @@ const click = (selector) => {
   if (element === null) throw new Error(`missing ${selector}`)
   element.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }))
 }
+const clickNode = (node) => node.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }))
 
 try {
-  await waitFor('[data-axv=root]', () => count('[data-axv="root"]') === 1, 15000)
-  assert(true, '[data-axv=root] rendered')
-  for (const selector of ['query', 'import', 'model']) {
+  await waitFor('[data-axv=panel]', () => count('[data-axv="panel"]') === 1, 15000)
+  assert(true, '[data-axv=panel] wrapper rendered')
+  for (const selector of ['session', 'query', 'import', 'model']) {
     assert(count(`[data-axv="${selector}"]`) > 0, `[data-axv=${selector}] present`)
   }
 
-  // model picker: open, list grouped rows, switch models, and switch back
+  // Library chips seeded from localStorage, with a pinned star per item.
+  assert(count('[data-axv="library"]') === 1, '[data-axv=library] rendered')
+  assert(count('[data-axv="library-item"]') === 2, '[data-axv=library-item] rows rendered', `${count('[data-axv="library-item"]')} items`)
+  assert(count('[data-axv="pin"]') === 2, '[data-axv=pin] buttons rendered')
+  const pinnedBefore = win.localStorage.getItem('dsh-arxiv.library')
+  const unpinnedItem = [...win.document.querySelectorAll('[data-axv="library-item"]')].find((node) => node.getAttribute('data-pinned') === 'false')
+  clickNode(unpinnedItem.querySelector('[data-axv="pin"]'))
+  await waitFor('pin toggle', () => {
+    const stored = JSON.parse(win.localStorage.getItem('dsh-arxiv.library') ?? '[]')
+    return stored.filter((item) => item.pinned === true).length === 2
+  }, 10000)
+  assert(true, 'pin click toggles the library star and persists', `${String(pinnedBefore).slice(0, 60)} -> 2 pinned`)
+  const pinnedFirst = JSON.parse(win.localStorage.getItem('dsh-arxiv.library') ?? '[]')[0]
+  assert(pinnedFirst.pinned === true, 'pinned papers sort first in the library', JSON.stringify({ id: pinnedFirst.id, pinned: pinnedFirst.pinned }))
+
+  // Target session picker: the panel is root-scoped, target comes from useSessions.
+  await waitFor('target session label', () => text('[data-axv="session"]').includes('Alpha'), 15000)
+  assert(text('[data-axv="session"]').includes('Alpha 论文会话'), 'session trigger shows the first target session', text('[data-axv="session"]'))
+  click('[data-axv="session"]')
+  await waitFor('session options', () => count('[data-axv="session-option"]') === 2, 10000)
+  assert(count('[data-axv="session-option"]') === 2, 'session picker lists session-option rows', `${count('[data-axv="session-option"]')} sessions`)
+  const betaOption = [...win.document.querySelectorAll('[data-axv="session-option"]')].find((node) => node.textContent.includes('Beta'))
+  clickNode(betaOption)
+  await waitFor('session switch', () => text('[data-axv="session"]').includes('Beta'), 10000)
+  assert(true, 'session picker switches the target session', text('[data-axv="session"]'))
+  assert(win.localStorage.getItem('dsh-arxiv.targetSession') === '"sess-beta"', 'target session persists to localStorage', String(win.localStorage.getItem('dsh-arxiv.targetSession')))
+
+  // Model picker: open, list grouped rows, switch models, and switch back.
   click('[data-axv="model"]')
   await waitFor('model options', () => count('[data-axv="model-option"]') === 2, 10000)
   const optionLabels = [...win.document.querySelectorAll('[data-axv="model-option"]')].map((node) => node.textContent)
   assert(optionLabels.length === 2, 'model picker lists model-option rows', optionLabels.join(' | '))
   assert(text('[data-axv="model"]').includes('DeepSeek-V4.1-Flash'), 'model trigger shows the current model', text('[data-axv="model"]'))
   const proOption = [...win.document.querySelectorAll('[data-axv="model-option"]')].find((node) => node.textContent.includes('V4-Pro'))
-  proOption.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }))
+  clickNode(proOption)
   await waitFor('model switch', () => text('[data-axv="model"]').includes('DeepSeek-V4-Pro'), 15000)
   assert(modelState.selectCalls.length === 1, 'clicking a model row calls modelDirectories.select()', JSON.stringify(modelState.selectCalls[0]))
   assert(modelState.selectCalls[0]?.provider === 'deepseek-account', 'model selection carries the provider', JSON.stringify(modelState.selectCalls[0]))
   assert(count('[data-axv="model-option"]') === 0, 'model picker closes after selecting')
-
   click('[data-axv="model"]')
   await waitFor('model options again', () => count('[data-axv="model-option"]') === 2, 10000)
   const flashOption = [...win.document.querySelectorAll('[data-axv="model-option"]')].find((node) => node.textContent.includes('V4.1-Flash'))
-  flashOption.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }))
+  clickNode(flashOption)
   await waitFor('model switch back', () => text('[data-axv="model"]').includes('DeepSeek-V4.1-Flash'), 15000)
   assert(modelState.selectCalls.length === 2, 'a second model switch reaches the directory', JSON.stringify(modelState.selectCalls[1]))
 
@@ -273,6 +390,7 @@ try {
   assert(sourceBlockCount >= 50, '[data-axv=source-text] renders many paragraph/heading blocks', `${sourceBlockCount} blocks`)
   assert(sourceTextContent.length > 20000, '[data-axv=source-text] renders the extracted paper text', `${sourceTextContent.length} chars`)
   assert(count('[data-axv="source-copy"]') === 1, '[data-axv=source-copy] present')
+  assert(count('[data-axv="send-selection"]') === 1, '[data-axv=send-selection] present')
 
   // Segmented control: split is the default, each button toggles data-active and
   // the .axv-workspace axv-mode-* class the CSS uses to lay the panes out.
@@ -323,8 +441,50 @@ try {
   assert(count('[data-axv="messages"]') === 1, '[data-axv=messages] list exists', `${count('[data-axv="answer"]')} answer bubble(s)`)
   const qaRequest = aiRequests.find((body) => body.mode === 'qa')
   assert(qaRequest?.question?.includes('主要贡献'), 'QA request carries the question', qaRequest?.question)
-  assert(qaRequest.model === 'deepseek-flash', 'QA used the model picked in the view', qaRequest.model)
+  assert(qaRequest.model === 'deepseek-flash', 'QA used the model picked in the panel', qaRequest.model)
   assert(qaRequest.reasoningEffort === 'low', 'QA used the session reasoning effort', String(qaRequest.reasoningEffort))
+
+  // ── attach/detach: panel action against the (fake) attach route ──────────
+  await waitFor('attach button', () => count('[data-axv="attach"]') === 1, 15000)
+  assert(attr('[data-axv="attach"]', 'data-attached') === 'false', 'paper starts unattached', String(attr('[data-axv="attach"]', 'data-attached')))
+  const getAttachCall = attachCalls.find((call) => call.method === 'GET')
+  assert(getAttachCall !== undefined, 'panel GETs /dsh-arxiv/attach for the target session', JSON.stringify(getAttachCall))
+  assert(getAttachCall.sessionId === 'sess-beta', 'attach GET carries the switched target session', getAttachCall.sessionId)
+
+  click('[data-axv="attach"]')
+  await waitFor('attached', () => attr('[data-axv="attach"]', 'data-attached') === 'true', 20000)
+  const attachPost = attachCalls.find((call) => call.method === 'POST' && call.paperId !== null)
+  assert(attachPost !== undefined, 'clicking attach POSTs /dsh-arxiv/attach', JSON.stringify(attachPost))
+  assert(attachPost.sessionId === 'sess-beta', 'attach POST carries the target session', attachPost.sessionId)
+  assert(String(attachPost.paperId).includes('1706.03762'), 'attach POST carries the paper id', String(attachPost.paperId))
+  await waitFor('attached notice', () => count('[data-axv="notice"]') === 1, 10000)
+  assert(text('[data-axv="notice"]').length > 0, '[data-axv=notice] shows the attach confirmation', text('[data-axv="notice"]'))
+
+  click('[data-axv="attach"]')
+  await waitFor('detached', () => attr('[data-axv="attach"]', 'data-attached') === 'false', 20000)
+  const detachPost = attachCalls.findLast((call) => call.method === 'POST')
+  assert(detachPost.paperId === null, 'clicking attach again POSTs a detach (paperId null)', JSON.stringify(detachPost))
+  // Re-attach so send-agent does not have to (it would attach as a fallback).
+  click('[data-axv="attach"]')
+  await waitFor('re-attached', () => attr('[data-axv="attach"]', 'data-attached') === 'true', 20000)
+
+  // ── send to agent: faces.sendPrompt -> ctx.get('sessions').using -> prompt ─
+  click('[data-axv="send-agent"]')
+  await waitFor('agent prompt', () => promptCalls.length === 1, 20000)
+  assert(promptCalls[0].sessionId === 'sess-beta', 'send-agent targets the selected session', promptCalls[0].sessionId)
+  const promptText = promptCalls[0].parts.map((part) => part.text ?? '').join('')
+  assert(promptText.includes('1706.03762'), 'send-agent prompt text contains the arXiv id', promptText.slice(0, 120))
+  assert(promptText.includes('Attention Is All You Need'), 'send-agent prompt text contains the paper title', promptText.slice(0, 120))
+  await waitFor('layout.selectPanel(null)', () => layoutCalls.includes(null), 10000)
+  assert(true, 'send-agent returns to the conversation via layout.selectPanel(null)', JSON.stringify(layoutCalls.slice(0, 3)))
+  assert(promptCalls[0].mode === 'queue', 'send-agent queues the prompt', String(promptCalls[0].mode))
+
+  // Let the send notice expire, then send-selection with an empty selection.
+  await waitFor('notice cleared', () => count('[data-axv="notice"]') === 0, 10000)
+  click('[data-axv="send-selection"]')
+  await waitFor('selection notice', () => count('[data-axv="notice"]') === 1, 10000)
+  assert(text('[data-axv="notice"]').length > 0, 'send-selection reports an empty selection instead of sending', text('[data-axv="notice"]'))
+  assert(promptCalls.length === 1, 'send-selection does not prompt when nothing is selected')
 
   const reactWarnings = consoleMessages.filter(([, message]) => /Warning:|unique "key"|not wrapped in act|Each child in a list/.test(message))
   assert(reactWarnings.length === 0, 'no React warnings/errors during the DOM run',
@@ -334,6 +494,7 @@ try {
   writeFileSync(path.join(artifactsDir, 'dom-summary.txt'), text('[data-axv="summary"]'))
   writeFileSync(path.join(artifactsDir, 'dom-qa.txt'), answerText)
   console.log(`\nTITLE   ${text('[data-axv="title"]')}`)
+  console.log(`SESSION ${text('[data-axv="session"]')}`)
   console.log(`SOURCE  ${sourceTextContent.length} chars, ${sourceBlockCount} blocks, title match=${sourceTextContent.includes('Attention Is All You Need')}`)
   console.log(`SUMMARY ${text('[data-axv="summary"]').slice(0, 120).replace(/\n/g, ' ')}`)
   console.log(`ANSWER  ${answerText.slice(0, 120).replace(/\n/g, ' ')}`)
@@ -343,6 +504,8 @@ try {
   writeFileSync(path.join(artifactsDir, 'dom-snapshot-failure.html'), win.document.documentElement.outerHTML)
   console.error(`\n--- DOM text at failure ---\n${win.document.body.textContent?.slice(0, 3000) ?? ''}`)
   console.error(`--- ai requests ---\n${JSON.stringify(aiRequests, null, 2)?.slice(0, 1200)}`)
+  console.error(`--- attach calls ---\n${JSON.stringify(attachCalls, null, 2)?.slice(0, 1200)}`)
+  console.error(`--- prompt calls ---\n${JSON.stringify(promptCalls, null, 2)?.slice(0, 1200)}`)
   root.unmount()
   win.close()
   console.error(`\n${checks.filter((check) => check.ok).length}/${checks.length} checks passed`)

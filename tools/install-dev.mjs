@@ -133,9 +133,12 @@ console.log(`bundles  ${(pkg.dsh?.profile?.bundles ?? []).join(', ')}`)
 if (opts.plugin) {
   const spec = `file:${pluginRoot}`
   const already = pkg.dependencies?.['dsh-arxiv']
+  // A file: dependency is a copy (or a deliberate junction from --link); drop the
+  // installed directory first so a reinstall always reflects the current source,
+  // even when pnpm considers the lockfile up to date.
+  const installedDir = path.join(profileDir, 'node_modules', 'dsh-arxiv')
+  if (opts.keep && existsSync(installedDir)) rmSync(installedDir, { recursive: true, force: true })
   if (already === spec || (already && opts.keep)) {
-    // Repoint the copy/link from the current source (file: deps are copied by pnpm,
-    // so a source edit does not refresh node_modules on its own).
     runCli(['plugin', '--profile', PROFILE, 'install', '--force'], 'reinstall plugin')
   } else {
     runCli(['plugin', '--profile', PROFILE, 'add', spec], 'install plugin')

@@ -1,7 +1,7 @@
 {
   "name": "dsh-arxiv",
-  "version": "0.1.1",
-  "description": "Fast single-paper arXiv reading for DeepSeek Harness: import by arXiv ID, original text beside a streamed AI summary and Q&A, with DSH model switching.",
+  "version": "0.2.0",
+  "description": "arXiv reading as a DeepSeek Harness left-sidebar panel: import by arXiv ID, original text beside AI summary and Q&A, attach the paper to a session so its agent can read it through the arxiv tool.",
   "type": "module",
   "license": "MIT",
   "author": "Lyu Yuxin",
@@ -20,7 +20,9 @@
     "arxiv",
     "paper",
     "reading",
-    "summary"
+    "summary",
+    "sidebar",
+    "agent"
   ],
   "main": "index.js",
   "exports": {
@@ -56,7 +58,9 @@
     "client": {
       "platform": "web",
       "inject": [
-        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-session",
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-model-selection"
       ]

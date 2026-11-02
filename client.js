@@ -19,10 +19,16 @@ window.__ModuleLoader__.load({
     const SUMMARY_KEY = 'dsh-arxiv.summary.'
     const RECENT_MAX = 8
     const SUMMARY_WAIT_MS = 2500
+    const LIBRARY_KEY = 'dsh-arxiv.library'
+    const TARGET_SESSION_KEY = 'dsh-arxiv.targetSession'
+    const LAST_PAPER_KEY = 'dsh-arxiv.lastPaper'
+    const LIBRARY_MAX = 30
+    const SEL_MAX = 2000
 
     // ── styles ────────────────────────────────────────────────────────────────
     const CSS = `
 .axv-root{box-sizing:border-box;height:100%;overflow-y:auto;overscroll-behavior:contain;color:var(--dsw-alias-label-primary);font-size:13px;line-height:1.55}
+.axv-panel-wrap{box-sizing:border-box;height:100%;min-height:0}
 .axv-inner{box-sizing:border-box;width:100%;max-width:920px;margin:0 auto;padding:18px 24px 48px;display:flex;flex-direction:column;gap:14px}
 .axv-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}
 .axv-brand{display:flex;align-items:center;gap:8px;min-width:0}
@@ -139,6 +145,32 @@ window.__ModuleLoader__.load({
   .axv-workspace.axv-mode-split{grid-template-columns:minmax(0,1fr)}
   .axv-mode-split .axv-pane{height:auto;max-height:46vh}
 }
+.axv-panel-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;padding-bottom:2px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.axv-session{position:relative;flex:none;min-width:0}
+.axv-session-trigger{display:inline-flex;align-items:center;gap:6px;max-width:240px;height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11.5px;cursor:pointer}
+.axv-session-trigger:hover{border-color:var(--dsw-alias-border-l4);color:var(--dsw-alias-label-primary)}
+.axv-session-trigger:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-brand-primary));outline-offset:1px}
+.axv-session-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:550;color:var(--dsw-alias-label-primary)}
+.axv-session-menu{position:absolute;left:0;top:calc(100% + 6px);z-index:40;width:320px;max-height:min(380px,60vh);overflow-y:auto;padding:6px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-2);box-shadow:var(--dsw-elevation-prominent)}
+.axv-session-option{display:flex;flex-direction:column;gap:2px;width:100%;padding:7px 9px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;text-align:left;cursor:pointer}
+.axv-session-option:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.axv-session-option[data-current="true"]{background:color-mix(in srgb, var(--dsw-alias-brand-primary) 9%, transparent)}
+.axv-session-title{font-size:12.5px;font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.axv-session-sub{font-size:10.5px;color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.axv-session-empty{padding:9px;color:var(--dsw-alias-label-secondary);font-size:12px}
+.axv-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.axv-attach{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11.5px;cursor:pointer}
+.axv-attach:hover:not(:disabled){border-color:var(--dsw-alias-border-l4);color:var(--dsw-alias-label-primary)}
+.axv-attach[data-attached="true"]{border-color:color-mix(in srgb, var(--dsw-alias-brand-primary) 50%, var(--dsw-alias-border-l2));background:color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, transparent);color:var(--dsw-alias-brand-primary)}
+.axv-attach:disabled{opacity:.5;cursor:not-allowed}
+.axv-attach-dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+.axv-library{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0}
+.axv-library-chip{display:inline-flex;align-items:center;gap:5px;max-width:260px;padding:3px 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11.5px;cursor:pointer}
+.axv-library-chip:hover{border-color:var(--dsw-alias-border-l4);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}
+.axv-library-chip[data-pinned="true"]{border-color:color-mix(in srgb, var(--dsw-alias-brand-primary) 45%, var(--dsw-alias-border-l2));color:var(--dsw-alias-brand-primary)}
+.axv-star{border:0;background:transparent;color:inherit;cursor:pointer;padding:0;line-height:1;font-size:11px;opacity:.55}
+.axv-star:hover{opacity:1}
+.axv-toast{font-size:11.5px;color:var(--dsw-alias-brand-primary)}
 `
 
     // ── dictionaries ──────────────────────────────────────────────────────────
@@ -185,6 +217,27 @@ window.__ModuleLoader__.load({
       sourceNote: '正文由 arXiv / ar5iv 自动提取，公式与图表请以 HTML/PDF 为准。',
       copySource: '复制原文',
       sourceCopied: '已复制',
+      panel: 'arXiv',
+      targetSession: '目标会话',
+      sessionNone: '无会话',
+      sessionLoading: '读取会话…',
+      sessionPick: '选择要把论文挂载/发送到的会话',
+      attach: '挂到会话',
+      attached: '已挂到会话',
+      detach: '取消挂载',
+      attachHint: '挂载后，该会话里的 agent 会知道你在读这篇论文，并可用 arxiv 工具读取正文。',
+      sendAgent: '发给 agent',
+      sendSelection: '问选中段落',
+      sendSent: '已发送到会话',
+      sendFailed: '发送失败：{message}',
+      needSession: '先选择一个目标会话',
+      library: '论文库',
+      libraryEmpty: '导入过的论文会出现在这里',
+      pin: '收藏',
+      unpin: '取消收藏',
+      selectionEmpty: '先在原文里选中一段文字',
+      backConversation: '回到会话',
+      agentReadable: '本会话的 agent 已能看到这篇论文',
       askPlaceholder: '问一个关于这篇论文的问题…',
       ask: '发送',
       answer: 'arXiv 速读',
@@ -265,6 +318,27 @@ window.__ModuleLoader__.load({
       sourceNote: 'Extracted automatically from arXiv / ar5iv; formulas and figures are best viewed in HTML/PDF.',
       copySource: 'Copy text',
       sourceCopied: 'Copied',
+      panel: 'arXiv',
+      targetSession: 'Target session',
+      sessionNone: 'No session',
+      sessionLoading: 'Loading sessions…',
+      sessionPick: 'Choose the session to attach/send this paper to',
+      attach: 'Attach to session',
+      attached: 'Attached to session',
+      detach: 'Detach',
+      attachHint: 'Attached sessions let their agent see this paper and read it through the arxiv tool.',
+      sendAgent: 'Send to agent',
+      sendSelection: 'Ask about selection',
+      sendSent: 'Sent to the session',
+      sendFailed: 'Send failed: {message}',
+      needSession: 'Pick a target session first',
+      library: 'Library',
+      libraryEmpty: 'Imported papers will show up here',
+      pin: 'Pin',
+      unpin: 'Unpin',
+      selectionEmpty: 'Select some original text first',
+      backConversation: 'Back to conversation',
+      agentReadable: 'This session’s agent can see the paper',
       askPlaceholder: 'Ask a question about this paper…',
       ask: 'Send',
       answer: 'arXiv Read',
@@ -328,6 +402,15 @@ window.__ModuleLoader__.load({
       h('path', { key: 'b', d: 'M15.5 5.5v-1a1 1 0 0 0-1-1h-9a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h1' }),
     ])
     const IconArrow = () => svg({ width: 12, height: 12 }, h('path', { d: 'M7 17 17 7M9 7h8v8' }))
+    /** Sidebar panel-list icon: same document glyph, sized by the sidebar seat. */
+    const ArxivPanelIcon = (props) => {
+      const size = props !== null && props !== undefined && typeof props.size === 'number' ? props.size : 16
+      return svg({ width: size, height: size }, [
+        h('path', { key: 'a', d: 'M6.5 3.5h7l4 4v11a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2Z' }),
+        h('path', { key: 'b', d: 'M13.5 3.5v4h4' }),
+        h('path', { key: 'c', d: 'M8 12.5h5.5M8 15.5h4' }),
+      ])
+    }
 
     // ── small helpers ─────────────────────────────────────────────────────────
     function injectStyles() {
@@ -407,6 +490,35 @@ window.__ModuleLoader__.load({
       try {
         response = await fetch(`${ROUTE}/${route}${query ? `?${query}` : ''}`, {
           headers: { accept: 'application/json' },
+          signal,
+        })
+      } catch (error) {
+        if (isAbortError(error)) throw error
+        throw Object.assign(new Error('network'), { code: 'network' })
+      }
+      let body = null
+      try {
+        body = await response.json()
+      } catch {
+        throw Object.assign(new Error('bad response'), { code: 'parse' })
+      }
+      if (body === null || typeof body !== 'object') throw Object.assign(new Error('bad response'), { code: 'parse' })
+      if (body.ok !== true) {
+        const err = body.error ?? {}
+        throw Object.assign(new Error(String(err.message ?? 'request failed')), {
+          code: typeof err.code === 'string' ? err.code : 'internal',
+        })
+      }
+      return body
+    }
+
+    async function postJson(route, payload, signal) {
+      let response
+      try {
+        response = await fetch(`${ROUTE}/${route}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', accept: 'application/json' },
+          body: JSON.stringify(payload ?? {}),
           signal,
         })
       } catch (error) {
@@ -856,6 +968,79 @@ window.__ModuleLoader__.load({
           : null)
     }
 
+    function SessionPicker({ t, sessions, currentId, onSelect, disabled }) {
+      const [open, setOpen] = React.useState(false)
+      const rootRef = React.useRef(null)
+      const current = sessions.find((session) => session.id === currentId) ?? null
+      React.useEffect(() => {
+        if (!open) return undefined
+        const onPointerDown = (event) => {
+          if (rootRef.current !== null && !rootRef.current.contains(event.target)) setOpen(false)
+        }
+        const onKeyDown = (event) => {
+          if (event.key === 'Escape') setOpen(false)
+        }
+        document.addEventListener('pointerdown', onPointerDown)
+        document.addEventListener('keydown', onKeyDown)
+        return () => {
+          document.removeEventListener('pointerdown', onPointerDown)
+          document.removeEventListener('keydown', onKeyDown)
+        }
+      }, [open])
+      return h('div', { className: 'axv-session', ref: rootRef },
+        h('button', {
+          type: 'button',
+          className: 'axv-session-trigger',
+          'data-axv': 'session',
+          title: t('sessionPick'),
+          'aria-haspopup': 'listbox',
+          'aria-expanded': open,
+          disabled,
+          onClick: () => setOpen((value) => !value),
+        },
+        h('span', { style: { color: 'var(--dsw-alias-label-tertiary)', flex: 'none' } }, t('targetSession')),
+        h('span', { className: 'axv-session-label' }, current ? current.title || String(current.id).slice(0, 12) : t('sessionNone')),
+        h('span', { style: { display: 'inline-flex', flex: 'none', color: 'var(--dsw-alias-label-tertiary)' } }, h(IconChevron))),
+        open ? h('div', { className: 'axv-session-menu', role: 'listbox' },
+          sessions.length === 0
+            ? h('div', { className: 'axv-session-empty' }, t('sessionNone'))
+            : sessions.map((session) => h('button', {
+              key: String(session.id),
+              type: 'button',
+              className: 'axv-session-option',
+              role: 'option',
+              'data-axv': 'session-option',
+              'data-current': session.id === currentId ? 'true' : 'false',
+              onClick: () => { onSelect(session.id); setOpen(false) },
+            },
+            h('span', { className: 'axv-session-title' }, session.title || String(session.id).slice(0, 12)),
+            h('span', { className: 'axv-session-sub' }, String(session.id))))) : null)
+    }
+
+    function LibraryChips({ t, items, currentId, onOpen, onTogglePin }) {
+      if (items.length === 0) return null
+      return h('div', { className: 'axv-library', 'data-axv': 'library' },
+        h('span', { className: 'axv-kv' }, t('library')),
+        items.map((item) => h('span', {
+          key: item.id,
+          className: 'axv-library-chip',
+          'data-axv': 'library-item',
+          'data-pinned': item.pinned ? 'true' : 'false',
+          'data-current': item.id === currentId ? 'true' : 'false',
+          title: `${item.id} ${item.title ?? ''}`,
+          onClick: () => onOpen(item.id),
+        },
+        h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, item.id),
+        h('button', {
+          type: 'button',
+          className: 'axv-star',
+          'data-axv': 'pin',
+          title: item.pinned ? t('unpin') : t('pin'),
+          'aria-label': item.pinned ? t('unpin') : t('pin'),
+          onClick: (event) => { event.stopPropagation(); onTogglePin(item.id) },
+        }, item.pinned ? '★' : '☆'))))
+    }
+
     function SummarySection(props) {
       const {
         t, text, phase, source, modelLabel, cached, canUpgrade, onGenerate, onStop, onUpgrade, onCopy,
@@ -978,7 +1163,43 @@ window.__ModuleLoader__.load({
     function View(props) {
       const t = props.t
       const models = props.models
-      const sessionId = props.sessionId
+      const faces = props.faces || {}
+      const sessionState = typeof props.useSessions === 'function'
+        ? props.useSessions((state) => state)
+        : null
+      const sessions = React.useMemo(() => {
+        const state = sessionState
+        if (!state || !Array.isArray(state.ids) || state.byId === undefined) return []
+        return state.ids
+          .map((id) => state.byId[id])
+          .filter((row) => row !== undefined && row !== null && row.origin !== 'subagent')
+          .slice(0, 40)
+          .map((row) => ({
+            id: row.id,
+            title: row.displayTitle || row.title || String(row.id).slice(0, 12),
+            running: row.running === true,
+            updatedAt: row.updatedAt,
+          }))
+      }, [sessionState])
+      const [targetSessionId, setTargetSessionId] = React.useState(() => {
+        const stored = readJson(TARGET_SESSION_KEY, null)
+        return typeof stored === 'string' ? stored : null
+      })
+      React.useEffect(() => {
+        if (sessions.length === 0) return
+        if (targetSessionId !== null && sessions.some((session) => String(session.id) === String(targetSessionId))) return
+        const next = sessions[0].id
+        setTargetSessionId(next)
+        writeJson(TARGET_SESSION_KEY, next)
+      }, [sessions, targetSessionId])
+      const sessionId = targetSessionId
+      const [attached, setAttached] = React.useState(null)
+      const [library, setLibrary] = React.useState(() => {
+        const stored = readJson(LIBRARY_KEY, [])
+        return Array.isArray(stored) ? stored.filter((item) => item !== null && typeof item === 'object' && typeof item.id === 'string').slice(0, LIBRARY_MAX) : []
+      })
+      const [notice, setNotice] = React.useState('')
+      const noticeTimerRef = React.useRef(0)
       const [paper, setPaper] = React.useState(null)
       const [textInfo, setTextInfo] = React.useState(null)
       const [textPending, setTextPending] = React.useState(false)
@@ -1040,6 +1261,7 @@ window.__ModuleLoader__.load({
           if (qaRafRef.current) cancelAnimationFrame(qaRafRef.current)
           if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
           if (sourceTimerRef.current) clearTimeout(sourceTimerRef.current)
+          if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
         }
       }, [])
 
@@ -1174,6 +1396,112 @@ window.__ModuleLoader__.load({
         })
       }, [])
 
+      const showNotice = React.useCallback((text) => {
+        setNotice(text)
+        if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
+        noticeTimerRef.current = window.setTimeout(() => {
+          if (aliveRef.current) setNotice('')
+        }, 4000)
+      }, [])
+
+      const rememberPaper = React.useCallback((entry) => {
+        setLibrary((current) => {
+          const previous = current.find((item) => item.id === entry.id)
+          const next = [
+            { ...entry, pinned: previous?.pinned === true, updatedAt: Date.now() },
+            ...current.filter((item) => item.id !== entry.id),
+          ].slice(0, LIBRARY_MAX)
+          writeJson(LIBRARY_KEY, next)
+          return next
+        })
+      }, [])
+
+      const togglePin = React.useCallback((id) => {
+        setLibrary((current) => {
+          const next = current.map((item) => item.id === id ? { ...item, pinned: item.pinned !== true } : item)
+            .sort((a, b) => (b.pinned === true ? 1 : 0) - (a.pinned === true ? 1 : 0) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+          writeJson(LIBRARY_KEY, next)
+          return next
+        })
+      }, [])
+
+      const refreshAttach = React.useCallback(async () => {
+        if (!sessionId || typeof faces.getAttach !== 'function') {
+          setAttached(null)
+          return
+        }
+        try {
+          const record = await faces.getAttach(sessionId)
+          if (aliveRef.current) setAttached(record ?? null)
+        } catch {
+          if (aliveRef.current) setAttached(null)
+        }
+      }, [faces, sessionId])
+
+      React.useEffect(() => {
+        if (paper !== null) void refreshAttach()
+      }, [paper, sessionId, refreshAttach])
+
+      const toggleAttach = React.useCallback(async () => {
+        if (!sessionId) {
+          showNotice(t('needSession'))
+          return
+        }
+        if (paper === null || typeof faces.attach !== 'function') return
+        try {
+          const detaching = attached !== null && attached.baseId === paper.baseId
+          const result = await faces.attach(sessionId, detaching ? null : paper.id)
+          if (aliveRef.current) setAttached(result ?? null)
+          showNotice(result === null || result === undefined ? t('detach') : t('attached'))
+        } catch (failure) {
+          showError(failure.code, failure.message)
+        }
+      }, [attached, faces, paper, sessionId, showError, showNotice, t])
+
+      const sendPromptToAgent = React.useCallback(async (text) => {
+        if (!sessionId) {
+          showNotice(t('needSession'))
+          return false
+        }
+        if (typeof faces.sendPrompt !== 'function') {
+          showError('send-failed', t('sendFailed', { message: 'session service unavailable' }))
+          return false
+        }
+        try {
+          if (paper !== null && (attached === null || attached.baseId !== paper.baseId) && typeof faces.attach === 'function') {
+            try {
+              const record = await faces.attach(sessionId, paper.id)
+              if (aliveRef.current && record !== null && record !== undefined) setAttached(record)
+            } catch {
+              /* attachment is best effort for a send */
+            }
+          }
+          await faces.sendPrompt(sessionId, text)
+          showNotice(t('sendSent'))
+          if (typeof faces.openConversation === 'function') faces.openConversation()
+          return true
+        } catch (failure) {
+          showError('send-failed', t('sendFailed', { message: String(failure?.message ?? failure) }))
+          return false
+        }
+      }, [attached, faces, paper, sessionId, showError, showNotice, t])
+
+      const sendPaperToAgent = React.useCallback(() => {
+        if (paper === null) return
+        void sendPromptToAgent(`[dsh-arxiv] 我正在阅读 arXiv:${paper.id}《${paper.title}》。请结合这篇论文回答：它解决了什么问题、核心方法和主要结论是什么？`)
+      }, [paper, sendPromptToAgent])
+
+      const sendSelectionToAgent = React.useCallback(() => {
+        if (paper === null) return
+        const raw = typeof window.getSelection === 'function' ? String(window.getSelection() ?? '') : ''
+        const selection = raw.trim().slice(0, SEL_MAX)
+        if (selection === '') {
+          showNotice(t('selectionEmpty'))
+          return
+        }
+        void sendPromptToAgent(`[dsh-arxiv] 关于 arXiv:${paper.id} 的原文选段：\n> ${selection.replace(/\n/g, '\n> ')}\n\n请解释这段内容。`)
+      }, [paper, sendPromptToAgent, showNotice, t])
+
       const startSummary = React.useCallback(async (targetPaper, options) => {
         const paperValue = targetPaper || paperRef.current
         if (!paperValue) return
@@ -1274,9 +1602,10 @@ window.__ModuleLoader__.load({
         }
       }, [flushSummary, modelState.groups, queueSummary, showError, t])
 
-      const importPaper = React.useCallback(async (rawInput) => {
+      const importPaper = React.useCallback(async (rawInput, options) => {
         const input = String(rawInput ?? '').trim()
         if (input === '') return
+        const restoreOnly = options !== null && options !== undefined && options.restoreOnly === true
         importRef.current?.abort()
         summaryAbortRef.current?.abort()
         qaAbortRef.current?.abort()
@@ -1334,7 +1663,11 @@ window.__ModuleLoader__.load({
           setTextPending(true)
           setStatus(t('loadingText'))
           setQuery('')
-          saveRecent({ id: imported.id, baseId: imported.baseId, title: imported.title })
+          if (!restoreOnly) {
+            saveRecent({ id: imported.id, baseId: imported.baseId, title: imported.title })
+            rememberPaper({ id: imported.id, baseId: imported.baseId, title: imported.title })
+            writeJson(LAST_PAPER_KEY, imported.id)
+          }
           // Start the model catalog immediately, but never let it delay the
           // first summary past the bounded text race below.
           const modelPromise = loadModels()
@@ -1356,6 +1689,7 @@ window.__ModuleLoader__.load({
             setSummaryCached(true)
             return
           }
+          if (restoreOnly) return
           void startSummary(imported)
         } catch (failure) {
           if (isAbortError(failure)) return
@@ -1369,6 +1703,17 @@ window.__ModuleLoader__.load({
           if (importRef.current === controller) importRef.current = null
         }
       }, [loadModels, saveRecent, showError, startSummary, t])
+
+      // Reopen the last paper when the panel is mounted again (switching back
+      // from the conversation must not lose the reading state).
+      const restoreOnceRef = React.useRef(false)
+      React.useEffect(() => {
+        if (restoreOnceRef.current) return
+        restoreOnceRef.current = true
+        if (paperRef.current !== null) return
+        const last = readJson(LAST_PAPER_KEY, null)
+        if (typeof last === 'string' && last !== '') void importPaper(last, { restoreOnly: true })
+      }, [importPaper])
 
       const onPickModel = React.useCallback(async (selection) => {
         if (!sessionId || !models) return
@@ -1584,6 +1929,16 @@ window.__ModuleLoader__.load({
               h('span', { className: 'axv-brand-name' }, t('tab')),
               h('span', { className: 'axv-brand-sub' }, t('brandSub'))),
             h('span', { className: 'axv-spacer' }),
+            h(SessionPicker, {
+              t,
+              sessions,
+              currentId: targetSessionId,
+              onSelect: (id) => {
+                setTargetSessionId(id)
+                writeJson(TARGET_SESSION_KEY, id)
+              },
+              disabled: importing,
+            }),
             modelState.failed ? null : h(ModelPicker, {
               t,
               groups: modelState.groups,
@@ -1625,6 +1980,46 @@ window.__ModuleLoader__.load({
               title: `${item.id} ${item.title}`,
               onClick: () => void importPaper(item.id),
             }, item.id))) : null,
+          library.length > 0
+            ? h(LibraryChips, {
+              t,
+              items: library,
+              currentId: paper !== null ? paper.id : null,
+              onOpen: (id) => void importPaper(id),
+              onTogglePin: togglePin,
+            })
+            : null,
+          paper !== null ? h('div', { className: 'axv-actions' },
+            h('button', {
+              type: 'button',
+              className: 'axv-attach',
+              'data-axv': 'attach',
+              'data-attached': attached !== null && attached.baseId === paper.baseId ? 'true' : 'false',
+              'aria-pressed': attached !== null && attached.baseId === paper.baseId,
+              title: t('attachHint'),
+              disabled: importing || !sessionId,
+              onClick: () => void toggleAttach(),
+            },
+            h('span', { className: 'axv-attach-dot' }),
+            attached !== null && attached.baseId === paper.baseId ? t('attached') : t('attach')),
+            h('button', {
+              type: 'button',
+              className: 'axv-btn axv-btn-outline',
+              'data-axv': 'send-agent',
+              title: attached !== null && attached.baseId === paper.baseId ? t('agentReadable') : t('attachHint'),
+              disabled: !sessionId || typeof faces.sendPrompt !== 'function',
+              onClick: () => sendPaperToAgent(),
+            }, t('sendAgent')),
+            h('button', {
+              type: 'button',
+              className: 'axv-btn axv-btn-ghost',
+              onClick: () => { if (typeof faces.openConversation === 'function') faces.openConversation() },
+            }, t('backConversation')),
+            notice !== '' ? h('span', { className: 'axv-toast', 'data-axv': 'notice' }, notice) : null,
+            h('span', { className: 'axv-spacer' }),
+            textInfo !== null ? h('span', { className: 'axv-section-caption' },
+              `${sourceLabel(t, textInfo.source)} · ${fmtNumber(textInfo.chars)} 字`) : null)
+            : null,
           error !== null ? h('div', { className: 'axv-error', 'data-axv': 'error', role: 'alert' }, error) : null,
           status !== '' ? h('div', { className: 'axv-status', 'data-axv': 'status' },
             (importing || textPending) ? h('span', { className: 'axv-dot' }) : null,
@@ -1718,6 +2113,14 @@ window.__ModuleLoader__.load({
                     textInfo !== null ? h('span', { className: 'axv-section-caption' },
                       `${sourceLabel(t, textInfo.source)} · ${fmtNumber(textInfo.chars)} 字`) : null,
                     h('span', { className: 'axv-spacer' }),
+                    h('button', {
+                      type: 'button',
+                      className: 'axv-btn axv-btn-ghost',
+                      'data-axv': 'send-selection',
+                      title: t('sendSelection'),
+                      disabled: !sessionId || typeof faces.sendPrompt !== 'function',
+                      onClick: () => sendSelectionToAgent(),
+                    }, t('sendSelection')),
                     paperText !== null && paperText !== '' ? h('button', {
                       type: 'button',
                       className: 'axv-btn axv-btn-ghost',
@@ -1785,14 +2188,59 @@ window.__ModuleLoader__.load({
       }
       const t = translateFor(ctx.locale)
       const models = createModelBridge(ctx)
-      const ViewWithFaces = (props) => h(View, Object.assign({}, props, { t, models }))
-      ViewWithFaces.displayName = 'ArxivView'
-      ctx.slots.inject('conversation.view', () => ctx.slots.register({
-        name: 'conversation.view',
+      const faces = {
+        async sendPrompt(sessionId, text) {
+          const sessions = ctx.get('sessions')
+          if (sessions === undefined || sessions === null) throw new Error('session service unavailable')
+          const result = await sessions.using(sessionId, { source: 'gateway' }, (reference) => (
+            reference.binding.session.prompt([{ type: 'text', text }], 'queue')
+          ))
+          if (result !== null && result !== undefined && result.ok === false) {
+            const failure = result.error ?? {}
+            throw Object.assign(new Error(String(failure.message ?? 'prompt failed')), {
+              code: typeof failure.code === 'string' ? failure.code : 'send-failed',
+            })
+          }
+          return true
+        },
+        async attach(sessionId, paperId) {
+          const body = await postJson('attach', { sessionId, paperId })
+          return body.attached ?? null
+        },
+        async getAttach(sessionId) {
+          const body = await getJson('attach', { sessionId })
+          return body.attached ?? null
+        },
+        openConversation() {
+          const layout = ctx.get('layout')
+          if (layout !== undefined && layout !== null && typeof layout.selectPanel === 'function') {
+            try {
+              layout.selectPanel(null)
+            } catch {
+              /* conversation may be unavailable in this composition */
+            }
+          }
+        },
+      }
+      const PanelWithFaces = (props) => h('div', {
+        className: 'axv-panel-wrap',
+        'data-axv': 'panel',
+      }, h(View, Object.assign({}, props, { t, models, faces })))
+      PanelWithFaces.displayName = 'ArxivPanel'
+      // Left sidebar plugin entry: a global panel, independent of any Session.
+      ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+        name: 'sidebar.panellist',
         id: 'arxiv',
         order: 20,
-        label: () => t('tab'),
-      }, ViewWithFaces))
+        label: () => t('panel'),
+        locale: NS,
+      }, ArxivPanelIcon))
+      // The panel body in the layout's root-scoped keyed `main` slot.
+      ctx.slots.inject('main', () => ctx.slots.register({
+        name: 'main',
+        key: 'arxiv',
+        locale: NS,
+      }, PanelWithFaces))
     }
 
     return {

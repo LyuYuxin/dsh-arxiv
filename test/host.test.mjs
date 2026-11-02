@@ -14,6 +14,7 @@ import { EventEmitter } from 'node:events'
 import { readFileSync } from 'node:fs'
 
 import { apply } from '../index.js'
+import { htmlToText } from '../src/arxiv.mjs'
 import { QA_SYSTEM, SUMMARY_SYSTEM } from '../src/prompt.mjs'
 
 const AR5IV_HTML = readFileSync(new URL('./fixtures/ar5iv-1706.03762.html', import.meta.url), 'utf8')
@@ -46,6 +47,31 @@ const ABS_HTML = `<!DOCTYPE html>
 
 const ARXIV_ID = '1706.03762'
 
+/** Second paper used to prove that changing the attachment injects immediately. */
+const SECOND_ID = '2004.00026'
+const SECOND_TITLE = 'Language Models are Few-Shot Learners'
+const SECOND_ABSTRACT = 'We train GPT-3, an autoregressive language model with 175 billion parameters.'
+const SECOND_ABS_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta name="citation_title" content="${SECOND_TITLE}" />
+  <meta name="citation_author" content="Brown, Tom" />
+  <meta name="citation_date" content="2020/05/28" />
+  <meta name="citation_abstract" content="${SECOND_ABSTRACT}" />
+  <meta name="citation_arxiv_id" content="${SECOND_ID}" />
+</head>
+<body>
+  <table>
+    <tr><td class="tablecell subjects"><span class="primary-subject">Computation and Language (cs.CL)</span></td></tr>
+    <tr><td class="tablecell arxividv">(or <span class="arxivid"><a href="https://arxiv.org/abs/${SECOND_ID}v1">arXiv:${SECOND_ID}v1</a> [cs.CL]</span> for this version)</td></tr>
+  </table>
+</body>
+</html>
+`
+
+/** Expected text length of the trimmed ar5iv fixture (same extraction the host uses). */
+const AR5IV_TEXT_LENGTH = htmlToText(AR5IV_HTML).length
+
 /** Options of the most recent fake Llm stream call (one per AI test). */
 let capturedStreamOptions = null
 
@@ -53,9 +79,23 @@ let capturedStreamOptions = null
 // Harness helpers
 // ---------------------------------------------------------------------------
 
-/** Fake Cordis context: captures the four exact routes and serves the fake Llm. */
-function createHost(llm) {
+/** Fake Cordis context: captures the routes, the `arxiv` tool and pre-step listeners. */
+function createHost(llm, options = {}) {
   const routes = new Map()
+  routes.toolDefinitions = []
+  routes.eventHandlers = new Map()
+  routes.injectCalls = []
+  const tools = options.tools === null
+    ? undefined
+    : (options.tools ?? {
+      register(definition) {
+        routes.toolDefinitions.push(definition)
+        return () => {
+          const index = routes.toolDefinitions.indexOf(definition)
+          if (index >= 0) routes.toolDefinitions.splice(index, 1)
+        }
+      },
+    })
   const ctx = {
     webServer: {
       register(route) {
@@ -68,12 +108,42 @@ function createHost(llm) {
       return () => dispose?.()
     },
     get(serviceName) {
-      return serviceName === 'llm' ? llm : undefined
+      if (serviceName === 'llm') return llm
+      if (serviceName === 'tools') return tools
+      return undefined
+    },
+    on(eventName, handler, options_) {
+      const list = routes.eventHandlers.get(eventName) ?? []
+      list.push({ handler, options: options_ })
+      routes.eventHandlers.set(eventName, list)
+      return () => {
+        const index = list.findIndex((entry) => entry.handler === handler)
+        if (index >= 0) list.splice(index, 1)
+      }
     },
   }
+  if (options.inject !== false) {
+    ctx.inject = (deps, callback) => {
+      routes.injectCalls.push({ deps, callback })
+      return { dispose() {} }
+    }
+  }
   apply(ctx, {})
-  assert.equal(routes.size, 4, 'expected the four exact host routes')
+  assert.equal(routes.size, 5, 'expected the five exact host routes')
   return routes
+}
+
+/** The single hand-written tool definition captured from ctx.get('tools'). */
+function capturedArxivTool(routes) {
+  assert.equal(routes.toolDefinitions.length, 1, 'expected exactly one registered arxiv tool')
+  return routes.toolDefinitions[0]
+}
+
+/** The registered agent/pre-step listener. */
+function capturedPreStep(routes) {
+  const entries = routes.eventHandlers.get('agent/pre-step')
+  assert.ok(Array.isArray(entries) && entries.length === 1, 'expected one agent/pre-step listener')
+  return entries[0].handler
 }
 
 /** Fake Llm whose stream records the options it is called with. */
@@ -225,6 +295,7 @@ async function withArxivNetwork(run, { ar5iv = AR5IV_HTML, abs = ABS_HTML, html 
       return html === null ? new Response('missing', { status: 404 }) : new Response(html, { status: 200 })
     }
     if (target.includes('arxiv.org/abs/')) {
+      if (typeof abs === 'function') return abs(target)
       return abs === null ? new Response('missing', { status: 404 }) : new Response(abs, { status: 200 })
     }
     return new Response(`unexpected ${target}`, { status: 404 })
@@ -245,7 +316,7 @@ test('GET /dsh-arxiv/health reports the plugin', async () => {
   const response = await invoke(routes, '/dsh-arxiv/health')
   assert.equal(response.statusCode, 200)
   assert.match(String(response.headers['content-type']), /application\/json/)
-  assert.deepEqual(jsonBody(response), { ok: true, name: 'dsh-arxiv', version: '0.1.0' })
+  assert.deepEqual(jsonBody(response), { ok: true, name: 'dsh-arxiv', version: '0.2.0' })
 })
 
 // ---------------------------------------------------------------------------
@@ -586,5 +657,391 @@ test('POST /ai survives a client disconnect mid-stream without throwing', async 
     const records = sseRecords(response)
     assert.deepEqual(records.map((record) => record.type), ['start', 'delta'])
     assert.ok(!records.some((record) => record.type === 'error'), 'no error record after a client disconnect')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// v0.2: attach routes (session -> paper)
+// ---------------------------------------------------------------------------
+
+async function attachPaper(routes, sessionId, paperId) {
+  return jsonBody(await invoke(routes, '/dsh-arxiv/attach', {
+    method: 'POST',
+    url: '/dsh-arxiv/attach',
+    body: { sessionId, paperId },
+  }))
+}
+
+async function getAttach(routes, sessionId) {
+  const url = `/dsh-arxiv/attach?sessionId=${encodeURIComponent(sessionId)}`
+  return jsonBody(await invoke(routes, '/dsh-arxiv/attach', { url }))
+}
+
+const EXPECTED_PARAMETERS = {
+  type: 'object',
+  properties: {
+    action: { type: 'string', enum: ['current', 'meta', 'abstract', 'sections', 'read', 'search'] },
+    id: { type: 'string', description: 'arXiv id (optional; defaults to the paper attached to this session)' },
+    section: { type: 'string', description: 'Section name or heading substring for read' },
+    query: { type: 'string', description: 'Literal search text for search' },
+    offset: { type: 'number', description: 'Character offset for read (default 0)' },
+    limit: { type: 'number', description: 'Characters to return (default 8000, max 20000)' },
+  },
+  required: ['action'],
+  additionalProperties: false,
+}
+
+function execFor(sessionId) {
+  return { agent: { session: { id: sessionId } } }
+}
+
+function preStepEvent(sessionId, signal = new AbortController().signal) {
+  return { agent: { session: { id: sessionId } }, messages: [], turn: 1, step: 1, signal }
+}
+
+function enterDecision() {
+  return { kind: 'enter', messages: [] }
+}
+
+/** Body of a read result: between the header line and the Next hint. */
+function readBody(text) {
+  const firstNewline = text.indexOf('\n')
+  const nextMark = text.indexOf('\nNext:')
+  return text.slice(firstNewline + 1, nextMark === -1 ? text.length : nextMark)
+}
+
+test('POST /attach attaches metadata and GET returns the projection', async () => {
+  const routes = createHost(fakeLlm([]))
+  await withArxivNetwork(async () => {
+    const attached = await attachPaper(routes, 'session-1', ARXIV_ID)
+    assert.equal(attached.ok, true)
+    assert.deepEqual(attached.attached, {
+      id: '1706.03762v7',
+      baseId: ARXIV_ID,
+      title: 'Attention Is All You Need',
+      primaryCategory: 'cs.CL',
+      published: '2017-06-12',
+    })
+
+    const read = await getAttach(routes, 'session-1')
+    assert.deepEqual(read, { ok: true, attached: attached.attached })
+
+    const unrelated = await getAttach(routes, 'other-session')
+    assert.deepEqual(unrelated, { ok: true, attached: null })
+  })
+})
+
+test('POST /attach with paperId null detaches the session', async () => {
+  const routes = createHost(fakeLlm([]))
+  await withArxivNetwork(async () => {
+    await attachPaper(routes, 'session-1', ARXIV_ID)
+    const detached = await attachPaper(routes, 'session-1', null)
+    assert.deepEqual(detached, { ok: true, attached: null })
+    assert.deepEqual(await getAttach(routes, 'session-1'), { ok: true, attached: null })
+  })
+})
+
+test('POST/GET /attach validates sessionId, paperId and unknown papers', async () => {
+  const routes = createHost(fakeLlm([]))
+  await withArxivNetwork(async (calls) => {
+    const missing = jsonBody(await invoke(routes, '/dsh-arxiv/attach', { url: '/dsh-arxiv/attach' }))
+    assert.equal(missing.ok, false)
+    assert.equal(missing.error.code, 'bad-request')
+
+    const tooLong = await getAttach(routes, 'x'.repeat(201))
+    assert.equal(tooLong.error.code, 'bad-request')
+
+    const emptySession = await attachPaper(routes, '', ARXIV_ID)
+    assert.equal(emptySession.error.code, 'bad-request')
+
+    const notAString = jsonBody(await invoke(routes, '/dsh-arxiv/attach', {
+      method: 'POST',
+      url: '/dsh-arxiv/attach',
+      body: { sessionId: 's', paperId: 42 },
+    }))
+    assert.equal(notAString.error.code, 'bad-request')
+
+    const invalidId = await attachPaper(routes, 's', 'not-an-arxiv-id')
+    assert.equal(invalidId.error.code, 'bad-id')
+    assert.equal(calls.length, 0, 'invalid requests must not touch the network')
+
+    const unknown = await attachPaper(routes, 's', '9999.99999')
+    assert.equal(unknown.ok, false)
+    assert.equal(unknown.error.code, 'not-found')
+    assert.equal(calls.length, 1)
+  }, { abs: null })
+})
+
+test('attach keeps at most 50 sessions (LRU)', async () => {
+  const routes = createHost(fakeLlm([]))
+  await withArxivNetwork(async () => {
+    for (let index = 0; index <= 50; index += 1) {
+      const result = await attachPaper(routes, `session-${index}`, ARXIV_ID)
+      assert.equal(result.ok, true)
+    }
+    assert.equal((await getAttach(routes, 'session-0')).attached, null, 'oldest session must be evicted')
+    assert.notEqual((await getAttach(routes, 'session-50')).attached, null)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// v0.2: hand-written arxiv tool
+// ---------------------------------------------------------------------------
+
+test('tools.register receives a valid hand-written arxiv ToolDefinition', () => {
+  const routes = createHost(fakeLlm([]))
+  const tool = capturedArxivTool(routes)
+  assert.equal(tool.name, 'arxiv')
+  assert.equal(typeof tool.description, 'string')
+  assert.ok(tool.description.length > 40)
+  assert.deepEqual(tool.parameters, EXPECTED_PARAMETERS)
+  assert.deepEqual(tool.output.schema, { type: 'string' })
+  assert.deepEqual(tool.output.render({}, 'hello'), [{ type: 'text', text: 'hello' }])
+  assert.deepEqual(tool.output.render({}, 42), [{ type: 'text', text: '42' }])
+  assert.equal(typeof tool.execute, 'function')
+})
+
+test('missing tools service at apply defers registration through ctx.inject', () => {
+  const routes = createHost(fakeLlm([]), { tools: null })
+  assert.equal(routes.toolDefinitions.length, 0, 'nothing to register into yet')
+  assert.equal(routes.injectCalls.length, 1, 'apply must wait for the tools service')
+  assert.deepEqual(routes.injectCalls[0].deps, ['tools'])
+
+  const innerRegistrations = []
+  const innerTools = {
+    register(definition) {
+      innerRegistrations.push(definition)
+      return () => {
+        const index = innerRegistrations.indexOf(definition)
+        if (index >= 0) innerRegistrations.splice(index, 1)
+      }
+    },
+  }
+  const effects = []
+  const inner = {
+    effect(run) {
+      const dispose = run()
+      effects.push(dispose)
+      return () => dispose?.()
+    },
+    get(serviceName) {
+      return serviceName === 'tools' ? innerTools : undefined
+    },
+  }
+
+  routes.injectCalls[0].callback(inner)
+  assert.equal(innerRegistrations.length, 1, 'the late tools service must receive the tool')
+  assert.equal(innerRegistrations[0].name, 'arxiv')
+  assert.deepEqual(innerRegistrations[0].parameters, EXPECTED_PARAMETERS)
+  assert.equal(effects.length, 1, 'registration must be an effect on the inject scope')
+})
+
+test('apply tolerates a missing tools service when ctx.inject is unavailable', () => {
+  const routes = createHost(fakeLlm([]), { tools: null, inject: false })
+  assert.equal(routes.toolDefinitions.length, 0)
+  assert.deepEqual(routes.injectCalls, [])
+  assert.equal(routes.size, 5)
+})
+
+test('arxiv tool current reads the paper attached to the calling session', async () => {
+  const routes = createHost(fakeLlm([]))
+  await withArxivNetwork(async () => {
+    await attachPaper(routes, 'session-1', ARXIV_ID)
+    const tool = capturedArxivTool(routes)
+    const text = await tool.execute({ action: 'current' }, execFor('session-1'))
+    assert.equal(typeof text, 'string')
+    assert.match(text, /Current paper attached to this session/)
+    assert.ok(text.includes('Attention Is All You Need'))
+    assert.ok(text.includes('Abstract:'))
+    assert.ok(text.includes('Sections ('))
+    assert.ok(text.includes('1 Introduction'))
+  })
+})
+
+test('arxiv tool current explains an empty attachment', async () => {
+  const routes = createHost(fakeLlm([]))
+  const tool = capturedArxivTool(routes)
+  const text = await tool.execute({ action: 'current' }, execFor('nobody'))
+  assert.match(text, /No paper is attached to this session/)
+  assert.equal(typeof text, 'string')
+})
+
+test('arxiv tool meta/abstract/sections work with an explicit id', async () => {
+  const routes = createHost(fakeLlm([]))
+  await withArxivNetwork(async () => {
+    const tool = capturedArxivTool(routes)
+
+    const metaText = await tool.execute({ action: 'meta', id: ARXIV_ID }, {})
+    assert.ok(metaText.includes('Title: Attention Is All You Need'))
+    assert.ok(metaText.includes('Authors: Vaswani, Ashish'))
+    assert.ok(metaText.includes('Primary category: cs.CL'))
+    assert.ok(metaText.includes(ABSTRACT))
+
+    const abstractText = await tool.execute({ action: 'abstract', id: ARXIV_ID }, {})
+    assert.equal(abstractText, ABSTRACT)
+
+    const sectionsText = await tool.execute({ action: 'sections', id: ARXIV_ID }, {})
+    assert.ok(sectionsText.includes('sections ('))
+    assert.ok(sectionsText.includes('1 Introduction'))
+    assert.ok(sectionsText.includes('3.2 Attention'))
+  })
+})
+
+test('arxiv tool read pages with offset/limit/section and a next hint', async () => {
+  const routes = createHost(fakeLlm([]))
+  await withArxivNetwork(async () => {
+    const tool = capturedArxivTool(routes)
+
+    const firstPage = await tool.execute({ action: 'read', id: ARXIV_ID, offset: 0, limit: 100 }, {})
+    assert.ok(firstPage.startsWith(`[offset 0/${AR5IV_TEXT_LENGTH}]`))
+    assert.equal(readBody(firstPage).length, 100)
+    assert.ok(firstPage.includes('Next: call arxiv with action="read"'))
+
+    const clamped = await tool.execute({ action: 'read', id: ARXIV_ID, offset: 0, limit: 999999 }, {})
+    assert.equal(readBody(clamped).length, 20000, 'limit must clamp to 20000')
+
+    const bySection = await tool.execute({ action: 'read', id: ARXIV_ID, section: 'Introduction', limit: 200 }, {})
+    assert.ok(bySection.includes('section="1 Introduction"'))
+    assert.equal(readBody(bySection).length, 200)
+    assert.ok(bySection.includes('Introduction'))
+
+    const pastEnd = await tool.execute({ action: 'read', id: ARXIV_ID, offset: AR5IV_TEXT_LENGTH + 50 }, {})
+    assert.match(pastEnd, /past the end/)
+
+    const missingSection = await tool.execute({ action: 'read', id: ARXIV_ID, section: 'No Such Section' }, {})
+    assert.match(missingSection, /Section "No Such Section" not found/)
+  })
+})
+
+test('arxiv tool search is case-insensitive, bounded and explained', async () => {
+  const routes = createHost(fakeLlm([]))
+  await withArxivNetwork(async () => {
+    const tool = capturedArxivTool(routes)
+
+    const lower = await tool.execute({ action: 'search', id: ARXIV_ID, query: 'transformer' }, {})
+    assert.ok(lower.includes('Search "transformer"'))
+    assert.ok(lower.includes('match(es) (max 8)'))
+    assert.equal((lower.match(/^\[\d+\] offset=/gm) ?? []).length, 8)
+
+    const upper = await tool.execute({ action: 'search', id: ARXIV_ID, query: 'TRANSFORMER' }, {})
+    assert.ok(upper.includes('Search "TRANSFORMER"'))
+    assert.ok(upper.includes('offset='))
+
+    const none = await tool.execute({ action: 'search', id: ARXIV_ID, query: 'zzzz-not-in-paper' }, {})
+    assert.match(none, /No matches for "zzzz-not-in-paper"/)
+
+    const empty = await tool.execute({ action: 'search', id: ARXIV_ID, query: '  ' }, {})
+    assert.match(empty, /needs a non-empty "query"/)
+  })
+})
+
+test('arxiv tool returns text (never throws) for bad actions, ids and failures', async () => {
+  const routes = createHost(fakeLlm([]))
+  const tool = capturedArxivTool(routes)
+
+  assert.match(await tool.execute({ action: 'bogus' }, {}), /Unknown action/)
+  assert.match(await tool.execute({}, {}), /Unknown action/)
+  assert.match(await tool.execute(null, {}), /Unknown action/)
+  assert.match(await tool.execute({ action: 'meta', id: 'not-an-id' }, {}), /not a valid arXiv id/)
+  assert.match(await tool.execute({ action: 'meta' }, execFor('nobody')), /No arXiv id was provided/)
+
+  await withArxivNetwork(async () => {
+    const missing = await tool.execute({ action: 'meta', id: '9999.99999' }, {})
+    assert.equal(typeof missing, 'string')
+    assert.match(missing, /arxiv tool failed/)
+  }, { abs: null })
+})
+
+// ---------------------------------------------------------------------------
+// v0.2: agent/pre-step context injection
+// ---------------------------------------------------------------------------
+
+test('pre-step injects the attached paper once per 10 minutes', async () => {
+  const routes = createHost(fakeLlm([]))
+  await withArxivNetwork(async () => {
+    await attachPaper(routes, 'session-1', ARXIV_ID)
+    const handler = capturedPreStep(routes)
+
+    const injected = await handler(preStepEvent('session-1'), async () => enterDecision())
+    assert.equal(injected.kind, 'enter')
+    assert.equal(injected.messages.length, 1)
+    const message = injected.messages[0]
+    assert.equal(typeof message.id, 'string')
+    assert.ok(message.id.length > 0)
+    assert.equal(message.role, 'user')
+    assert.equal(message.content.length, 1)
+    assert.equal(message.content[0].type, 'text')
+    const text = message.content[0].text
+    assert.ok(text.includes(`arXiv:${ARXIV_ID}`))
+    assert.ok(text.includes('Attention Is All You Need'))
+    assert.ok(text.includes('action=current'))
+    assert.ok(text.includes(ABSTRACT.slice(0, 50)))
+    assert.deepEqual(message.source, {
+      kind: 'dsh-arxiv',
+      form: 'snapshot',
+      sections: [{ name: 'dsh-arxiv', text }],
+    })
+
+    const deduped = await handler(preStepEvent('session-1'), async () => enterDecision())
+    assert.deepEqual(deduped.messages, [], 'same paper must not be injected again within 10 minutes')
+  })
+})
+
+test('pre-step injects immediately when the paper changes and after the dedupe window', async () => {
+  const routes = createHost(fakeLlm([]))
+  const network = {
+    abs: (url) => new Response(url.includes(SECOND_ID) ? SECOND_ABS_HTML : ABS_HTML, { status: 200 }),
+  }
+  await withArxivNetwork(async () => {
+    await attachPaper(routes, 'session-1', ARXIV_ID)
+    const handler = capturedPreStep(routes)
+    await handler(preStepEvent('session-1'), async () => enterDecision())
+
+    await attachPaper(routes, 'session-1', SECOND_ID)
+    const changed = await handler(preStepEvent('session-1'), async () => enterDecision())
+    assert.equal(changed.messages.length, 1)
+    assert.ok(changed.messages[0].content[0].text.includes(`arXiv:${SECOND_ID}`))
+    assert.ok(changed.messages[0].content[0].text.includes(SECOND_TITLE))
+
+    const realNow = Date.now
+    try {
+      Date.now = () => realNow() + 11 * 60 * 1000
+      const refreshed = await handler(preStepEvent('session-1'), async () => enterDecision())
+      assert.equal(refreshed.messages.length, 1, 'same paper must be re-injected after 10 minutes')
+    } finally {
+      Date.now = realNow
+    }
+  }, network)
+})
+
+test('pre-step skips reject decisions, aborted steps and unattached sessions', async () => {
+  const routes = createHost(fakeLlm([]))
+  await withArxivNetwork(async () => {
+    await attachPaper(routes, 'session-1', ARXIV_ID)
+    const handler = capturedPreStep(routes)
+
+    const rejected = await handler(preStepEvent('session-1'), async () => ({ kind: 'reject' }))
+    assert.deepEqual(rejected, { kind: 'reject' })
+
+    const controller = new AbortController()
+    controller.abort()
+    const aborted = await handler(preStepEvent('session-1', controller.signal), async () => enterDecision())
+    assert.deepEqual(aborted.messages, [])
+
+    const unattached = await handler(preStepEvent('session-without-paper'), async () => enterDecision())
+    assert.deepEqual(unattached.messages, [])
+  })
+})
+
+test('pre-step stops injecting after the paper is detached', async () => {
+  const routes = createHost(fakeLlm([]))
+  await withArxivNetwork(async () => {
+    await attachPaper(routes, 'session-1', ARXIV_ID)
+    const handler = capturedPreStep(routes)
+    await handler(preStepEvent('session-1'), async () => enterDecision())
+
+    await attachPaper(routes, 'session-1', null)
+    const afterDetach = await handler(preStepEvent('session-1'), async () => enterDecision())
+    assert.deepEqual(afterDetach.messages, [])
   })
 })

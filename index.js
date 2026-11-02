@@ -1,14 +1,20 @@
 // Host half of dsh-arxiv.
 //
 // Routes (same-origin, used by the browser half in client.js):
-//   GET  /dsh-arxiv/health               -> { ok, name, version }
-//   GET  /dsh-arxiv/meta?id=<id-or-url>  -> { ok, paper } | { ok:false, error }
-//   GET  /dsh-arxiv/text?id=<id-or-url>  -> { ok, id, source, chars, sections }
-//   POST /dsh-arxiv/ai                   -> text/event-stream of JSON records
+//   GET  /dsh-arxiv/health                    -> { ok, name, version }
+//   GET  /dsh-arxiv/meta?id=<id-or-url>       -> { ok, paper } | { ok:false, error }
+//   GET  /dsh-arxiv/text?id=<id-or-url>       -> { ok, id, source, chars, sections }
+//   POST /dsh-arxiv/ai                        -> text/event-stream of JSON records
+//   GET  /dsh-arxiv/attach?sessionId=...      -> { ok, attached }
+//   POST /dsh-arxiv/attach                    -> { ok, attached } (body: sessionId, paperId|null)
 //
 // The paper text never reaches the browser: the /ai route reads it from this
 // process's cache and forwards streamed model deltas only. Model calls go
 // through ctx.llm, so credentials, routes, and retry policy stay owned by DSH.
+//
+// v0.2 additions: the attach table above, a model-facing `arxiv` tool (registered
+// through the optional `tools` service), and an `agent/pre-step` listener that
+// tells the attached session's agent which paper the user is reading.
 
 import {
   ArxivError,
@@ -16,6 +22,12 @@ import {
   fetchMeta,
   parseArxivId,
 } from './src/arxiv.mjs'
+import {
+  attachView,
+  createArxivTool,
+  createAttachStore,
+  createPreStepInjector,
+} from './src/attach.mjs'
 import { buildQaMessages, buildSummaryMessages } from './src/prompt.mjs'
 
 export const name = 'dsh-arxiv'
@@ -24,7 +36,7 @@ export const name = 'dsh-arxiv'
 export const inject = ['webServer']
 
 const ROUTE = '/dsh-arxiv'
-const VERSION = '0.1.0'
+const VERSION = '0.2.0'
 const CACHE_MAX = 20
 const META_TTL_MS = 30 * 60 * 1000
 const TEXT_TTL_MS = 30 * 60 * 1000
@@ -48,7 +60,9 @@ function sendJson(response, status, body) {
 
 /** @param {unknown} error */
 function errorBody(error) {
-  const code = error instanceof ArxivError ? error.code : 'internal'
+  const code = error instanceof ArxivError
+    ? error.code
+    : (typeof error?.code === 'string' && error.code !== '' ? error.code : 'internal')
   return { ok: false, error: { code, message: String(error?.message ?? error) } }
 }
 
@@ -90,6 +104,14 @@ function requireId(value) {
   const id = parseArxivId(value)
   if (id === null) throw new ArxivError('bad-id', '无法识别的 arXiv ID')
   return id
+}
+
+/** Validate an attach route session id: non-empty string, at most 200 chars. */
+function normalizeSessionId(value) {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (trimmed === '' || trimmed.length > 200) return null
+  return trimmed
 }
 
 /** @param {import('node:http').ServerResponse} response */
@@ -167,6 +189,16 @@ export function apply(ctx, config = {}) {
   const textCache = new Map()
   /** in-flight full-text fetches keyed by base id */
   const textInflight = new Map()
+  /** session id -> attached paper metadata (LRU, at most 50 sessions) */
+  const attachStore = createAttachStore()
+  /** Memoized optional import for createUserMessage; the fallback keeps the plugin usable. */
+  let llmModulePromise
+  function loadLlmModule() {
+    if (llmModulePromise === undefined) {
+      llmModulePromise = import('@deepseek-ai/dsh-llm').catch(() => null)
+    }
+    return llmModulePromise
+  }
 
   /** @param {Map<string, {at: number}>} cache @param {string} key */
   function touch(cache, key) {
@@ -248,6 +280,32 @@ export function apply(ctx, config = {}) {
     return { source: 'abstract', text: meta.abstract, sections: ['Abstract'] }
   }
 
+  // Model-facing `arxiv` tool. The tools service is optional: register
+  // immediately when it exists, otherwise wait for it through ctx.inject so a
+  // composition that loads dsh-tools after this plugin still gets the tool.
+  // Registration always runs as an effect on the scope that owns the service
+  // (plugin ctx, or the inject callback's inner ctx), so a service reload or a
+  // plugin unload re-registers/removes it cleanly.
+  const arxivTool = createArxivTool({ attachStore, ensureMeta, ensureText, parseArxivId })
+  function registerArxivTool(scope, registrar) {
+    if (registrar === undefined || registrar === null || typeof registrar.register !== 'function') return
+    scope.effect(() => registrar.register(arxivTool), 'dsh-arxiv: arxiv tool')
+  }
+  const tools = ctx.get('tools')
+  if (tools !== undefined && tools !== null && typeof tools.register === 'function') {
+    registerArxivTool(ctx, tools)
+  } else if (typeof ctx.inject === 'function') {
+    ctx.inject(['tools'], (inner) => {
+      registerArxivTool(inner, inner.get('tools'))
+    })
+  }
+
+  // Tell an attached session's agent which paper the user is reading. The
+  // listener is a no-op for sessions without an attachment.
+  if (typeof ctx.on === 'function') {
+    ctx.on('agent/pre-step', createPreStepInjector({ attachStore, importLlm: loadLlmModule }))
+  }
+
   const handlers = {
     /**
      * @param {import('node:http').IncomingMessage} request
@@ -293,6 +351,50 @@ export function apply(ctx, config = {}) {
           sections: full.sections,
           ...(includeBody ? { text: full.text } : {}),
         })
+      } catch (error) {
+        sendJson(response, 200, errorBody(error))
+      }
+    },
+
+    /**
+     * Session attachment table used by the panel, the `arxiv` tool and the
+     * pre-step injection. POST attaches/detaches one paper; GET reads.
+     * @param {import('node:http').IncomingMessage} request
+     * @param {import('node:http').ServerResponse} response
+     */
+    async attach(request, response) {
+      try {
+        if (request.method === 'GET') {
+          const url = new URL(request.url ?? '/', 'http://localhost')
+          const sessionId = normalizeSessionId(url.searchParams.get('sessionId'))
+          if (sessionId === null) {
+            throw Object.assign(new Error('sessionId must be a non-empty string of at most 200 characters'), { code: 'bad-request' })
+          }
+          sendJson(response, 200, { ok: true, attached: attachView(attachStore.get(sessionId)) })
+          return
+        }
+        if (request.method !== 'POST') {
+          sendJson(response, 405, { ok: false, error: { code: 'method', message: 'GET or POST only' } })
+          return
+        }
+        const body = await readJson(request, BODY_LIMIT)
+        if (!isRecord(body)) {
+          throw Object.assign(new Error('请求体必须是 JSON 对象'), { code: 'bad-request' })
+        }
+        const sessionId = normalizeSessionId(body.sessionId)
+        if (sessionId === null) {
+          throw Object.assign(new Error('sessionId must be a non-empty string of at most 200 characters'), { code: 'bad-request' })
+        }
+        if (body.paperId === null) {
+          sendJson(response, 200, { ok: true, attached: attachStore.detach(sessionId) })
+          return
+        }
+        if (typeof body.paperId !== 'string') {
+          throw Object.assign(new Error('paperId must be a string or null'), { code: 'bad-request' })
+        }
+        const id = requireId(body.paperId)
+        const paper = await ensureMeta(id)
+        sendJson(response, 200, { ok: true, attached: attachStore.attach(sessionId, paper) })
       } catch (error) {
         sendJson(response, 200, errorBody(error))
       }
