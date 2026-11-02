@@ -1,6 +1,6 @@
-{
+﻿{
   "name": "dsh-arxiv",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Fast single-paper arXiv reading for DeepSeek Harness: import by arXiv ID, original text beside a streamed AI summary and Q&A, with DSH model switching.",
   "type": "module",
   "license": "MIT",
@@ -63,3 +63,4 @@
     }
   }
 }
+
