@@ -185,6 +185,20 @@ assert(registration.component !== null, 'conversation.view component captured')
 assert(registration.spec?.id === 'arxiv', 'view tab id is arxiv', JSON.stringify(registration.spec))
 assert(win.document.querySelector('style[data-plugin="dsh-arxiv"]') !== null, 'apply() injects the axv style element')
 
+// React dev-mode warnings go through console.error; capture them so the run can
+// assert a clean render instead of only looking at PASS lines.
+const consoleMessages = []
+const originalConsoleError = console.error.bind(console)
+const originalConsoleWarn = console.warn.bind(console)
+console.error = (...parts) => {
+  consoleMessages.push(['error', parts.map(String).join(' ')])
+  originalConsoleError(...parts)
+}
+console.warn = (...parts) => {
+  consoleMessages.push(['warn', parts.map(String).join(' ')])
+  originalConsoleWarn(...parts)
+}
+
 // ── render the view ────────────────────────────────────────────────────────
 const root = ReactDOM.createRoot(win.document.getElementById('app'))
 root.render(React.createElement(registration.component, { sessionId: 'dom-session' }))
@@ -248,6 +262,40 @@ try {
   assert(true, '[data-axv=title] shows the imported paper', text('[data-axv="title"]'))
   assert(text('[data-axv="title"]').length > 20, 'title is the full paper title', text('[data-axv="title"]'))
 
+  // ── original extracted text pane (client fetches /text?body=1) ───────────
+  await waitFor('[data-axv=source-text]', () => count('[data-axv="source-text"]') === 1, 60000)
+  assert(count('[data-axv="source"]') === 1, '[data-axv=source] source pane present')
+  const sourceNode = win.document.querySelector('[data-axv="source-text"]')
+  const sourceTextContent = sourceNode.textContent ?? ''
+  const sourceBlockCount = sourceNode.querySelectorAll('p, h3').length
+  assert(sourceTextContent.includes('Attention Is All You Need'),
+    '[data-axv=source-text] contains the paper title', sourceTextContent.slice(0, 80).replace(/\n/g, ' '))
+  assert(sourceBlockCount >= 50, '[data-axv=source-text] renders many paragraph/heading blocks', `${sourceBlockCount} blocks`)
+  assert(sourceTextContent.length > 20000, '[data-axv=source-text] renders the extracted paper text', `${sourceTextContent.length} chars`)
+  assert(count('[data-axv="source-copy"]') === 1, '[data-axv=source-copy] present')
+
+  // Segmented control: split is the default, each button toggles data-active and
+  // the .axv-workspace axv-mode-* class the CSS uses to lay the panes out.
+  for (const mode of ['split', 'ai', 'source']) {
+    assert(count(`[data-axv="mode-${mode}"]`) === 1, `[data-axv=mode-${mode}] present`)
+  }
+  const workspaceClass = () => win.document.querySelector('.axv-workspace')?.getAttribute('class') ?? ''
+  const activeMode = () => win.document.querySelector('[data-axv^="mode-"][data-active="true"]')?.getAttribute('data-axv') ?? ''
+  assert(activeMode() === 'mode-split', 'split mode is active by default', activeMode())
+  assert(workspaceClass().includes('axv-mode-split'), 'workspace starts in axv-mode-split', workspaceClass())
+  click('[data-axv="mode-ai"]')
+  await waitFor('mode-ai', () => activeMode() === 'mode-ai' && workspaceClass().includes('axv-mode-ai'), 10000)
+  assert(true, 'clicking AI sets data-active and axv-mode-ai', workspaceClass())
+  assert(win.document.querySelector('[data-axv="mode-split"]')?.getAttribute('data-active') === 'false',
+    'split is no longer data-active in AI mode')
+  click('[data-axv="mode-source"]')
+  await waitFor('mode-source', () => activeMode() === 'mode-source' && workspaceClass().includes('axv-mode-source'), 10000)
+  assert(true, 'clicking source sets axv-mode-source', workspaceClass())
+  click('[data-axv="mode-split"]')
+  await waitFor('mode-split again', () => activeMode() === 'mode-split' && workspaceClass().includes('axv-mode-split'), 10000)
+  assert(true, 'clicking split restores data-active and axv-mode-split', workspaceClass())
+  writeFileSync(path.join(artifactsDir, 'dom-source-text.txt'), sourceTextContent)
+
   await waitFor('[data-axv=summary] Chinese text', () => CJK.test(text('[data-axv="summary"]')), 150000)
   assert(true, '[data-axv=summary] streams Chinese text', `${text('[data-axv="summary"]').length} chars`)
   await waitFor('summary grows', () => text('[data-axv="summary"]').length > 200, 60000)
@@ -278,10 +326,15 @@ try {
   assert(qaRequest.model === 'deepseek-flash', 'QA used the model picked in the view', qaRequest.model)
   assert(qaRequest.reasoningEffort === 'low', 'QA used the session reasoning effort', String(qaRequest.reasoningEffort))
 
+  const reactWarnings = consoleMessages.filter(([, message]) => /Warning:|unique "key"|not wrapped in act|Each child in a list/.test(message))
+  assert(reactWarnings.length === 0, 'no React warnings/errors during the DOM run',
+    reactWarnings.map(([kind, message]) => `${kind}: ${message.slice(0, 120)}`).join(' | '))
+
   writeFileSync(path.join(artifactsDir, 'dom-snapshot.html'), win.document.documentElement.outerHTML)
   writeFileSync(path.join(artifactsDir, 'dom-summary.txt'), text('[data-axv="summary"]'))
   writeFileSync(path.join(artifactsDir, 'dom-qa.txt'), answerText)
   console.log(`\nTITLE   ${text('[data-axv="title"]')}`)
+  console.log(`SOURCE  ${sourceTextContent.length} chars, ${sourceBlockCount} blocks, title match=${sourceTextContent.includes('Attention Is All You Need')}`)
   console.log(`SUMMARY ${text('[data-axv="summary"]').slice(0, 120).replace(/\n/g, ' ')}`)
   console.log(`ANSWER  ${answerText.slice(0, 120).replace(/\n/g, ' ')}`)
   console.log('saved test-artifacts/dom-snapshot.html')
@@ -300,5 +353,11 @@ root.unmount()
 win.close()
 const failed = checks.filter((check) => !check.ok)
 console.log(`\n${checks.length - failed.length}/${checks.length} checks passed`)
-writeFileSync(path.join(artifactsDir, 'dom-report.json'), `${JSON.stringify({ at: new Date().toISOString(), origin, paper: paperId, checks }, null, 2)}\n`)
+writeFileSync(path.join(artifactsDir, 'dom-report.json'), `${JSON.stringify({
+  at: new Date().toISOString(),
+  origin,
+  paper: paperId,
+  consoleMessages,
+  checks,
+}, null, 2)}\n`)
 process.exit(0)

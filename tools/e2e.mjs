@@ -273,8 +273,22 @@ async function httpChecks(state) {
     'full text cached in the host process', `chars=${textRoute.body.chars}, source=${textRoute.body.source}`)
   assert(['ar5iv', 'arxiv-html', 'abstract'].includes(textRoute.body.source),
     'full text source is a known value', String(textRoute.body.source))
-  assert(textRoute.body.text === undefined, 'text route does not ship the body to the browser', 'no text field')
+  assert(textRoute.body.text === undefined, 'plain text route does not ship the paper body', 'no text field')
   writeFileSync(path.join(artifactsDir, 'text.json'), `${JSON.stringify({ ...textRoute.body, sections: textRoute.body.sections?.slice(0, 10) }, null, 2)}\n`)
+
+  // The in-app 原文 reading pane opts in with body=1; this is the only route
+  // variant that ships the extracted text to the browser.
+  const bodyRoute = await apiJson(state, `/dsh-arxiv/text?id=${encodeURIComponent(opts.paper)}&body=1`)
+  assert(bodyRoute.body.ok === true, 'GET /dsh-arxiv/text?body=1 returns ok:true',
+    JSON.stringify({ ...bodyRoute.body, text: undefined }).slice(0, 200))
+  const sourceText = bodyRoute.body.text
+  assert(typeof sourceText === 'string', '/text?body=1 includes the text string', typeof sourceText)
+  assert(sourceText.length > 20000, '/text?body=1 ships the extracted paper text', `${sourceText.length} chars`)
+  assert(bodyRoute.body.chars === sourceText.length, '/text?body=1 chars matches the text length',
+    `chars=${bodyRoute.body.chars}, text=${sourceText.length}`)
+  assert(sourceText.includes(paper.title), '/text?body=1 text contains the paper title', paper.title)
+  assert(['ar5iv', 'arxiv-html'].includes(bodyRoute.body.source), '/text?body=1 source is full-text (ar5iv/arxiv-html)', String(bodyRoute.body.source))
+  writeFileSync(path.join(artifactsDir, 'source-text.txt'), sourceText)
 
   return { boot, entries, paper }
 }

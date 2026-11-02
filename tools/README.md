@@ -82,7 +82,7 @@ node tools\e2e.mjs
 node tools\e2e.mjs --headed --keep-open     # visible browser, left open to inspect
 ```
 
-`--http-only` asserts (24 checks):
+`--http-only` asserts (27 checks):
 
 - `GET /` 200; `__DSH_BOOT__` parses; the `dsh-arxiv` client entry exists and
   `plugins/??dsh-arxiv/client.js&rev=...` returns 200 JS containing
@@ -90,7 +90,10 @@ node tools\e2e.mjs --headed --keep-open     # visible browser, left open to insp
 - `GET /dsh-arxiv/health` → `{ok:true,name:"dsh-arxiv",version:"0.1.0"}`.
 - `GET /dsh-arxiv/meta?id=1706.03762` → `ok:true`, full title/authors/abstract.
 - `GET /dsh-arxiv/text?id=1706.03762` → `ok:true`, `source:"ar5iv"`, >1000 chars,
-  and no body in the response (host-process cache only).
+  and **no `text` field** (AI calls never ship the paper body).
+- `GET /dsh-arxiv/text?id=1706.03762&body=1` → the in-app 原文 pane opt-in: `text`
+  is a string >20,000 chars, `chars` matches its length, it contains the paper
+  title, and `source` is `ar5iv`/`arxiv-html`.
 - `POST /dsh-arxiv/ai` (`mode:"summary"`, real `deepseek-account` model,
   `reasoningEffort:"low"`) streams `start` → `delta` (Chinese, contains
   `## 一句话总结`) → `done` with usage; then a `mode:"qa"` round for
@@ -106,13 +109,21 @@ full paper title, Chinese streams into `[data-axv=summary]` (including the
 `一句话总结` / `核心贡献` sections once markdown renders) and the streamed answer lands
 in `[data-axv=answer]`; it also asserts the summary request used the selected
 provider + lowest reasoning effort and the QA request kept the session effort.
-Artifacts: `test-artifacts/dom-snapshot.html`, `dom-summary.txt`, `dom-qa.txt`.
+
+It also covers the original-text reading pane: `[data-axv=source]` renders,
+`[data-axv=source-text]` contains the paper title, ≥50 paragraph/heading blocks and
+>20,000 rendered chars, `[data-axv=source-copy]` exists, and the segmented control
+`[data-axv=mode-split|mode-ai|mode-source]` starts with split `data-active="true"`
+and toggles both `data-active` and the `.axv-workspace` class
+(`axv-mode-split`/`ai`/`source`). A clean run also asserts there were **no React
+warnings/errors** in the console capture. Artifacts: `test-artifacts/dom-snapshot.html`,
+`dom-summary.txt`, `dom-qa.txt`, `dom-source-text.txt`, `dom-report.json`.
 
 The full browser run drives the same assertions through the real app shell: opens
 the `arXiv 速读` view tab, imports the paper, waits for the streamed summary and a
-QA answer, opens the model picker, and saves full-page screenshots
-`test-artifacts/e2e-*.png`, plus `e2e-report.json`, `boot-manifest.json`,
-`meta.json`, `summary.txt`, `qa.txt`.
+QA answer, checks the original-text pane and mode switch, opens the model picker,
+and saves full-page screenshots `test-artifacts/e2e-*.png`, plus `e2e-report.json`,
+`boot-manifest.json`, `meta.json`, `summary.txt`, `qa.txt`, `source-text.txt`.
 
 ## Debugging
 
