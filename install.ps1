@@ -96,4 +96,4 @@ if (-not (Test-Path -LiteralPath $installed)) {
 
 Write-Host ''
 Write-Host 'Done. Restart DeepSeek Harness to load the plugin,' -ForegroundColor Green
-Write-Host 'then open any session and pick the "arXiv 速读" view tab.'
+Write-Host 'then click the "arXiv" icon in the LEFT SIDEBAR (the panel is global, not session-bound).'
