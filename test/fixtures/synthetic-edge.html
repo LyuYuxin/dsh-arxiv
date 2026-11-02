@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Synthetic Edge Cases</title>
+  <meta name="citation_title" content="Synthetic &amp; Edge Cases" />
+  <script>window.bad = "</p>";</script>
+  <style>.hidden { display: none; }</style>
+</head>
+<body>
+  <nav class="site-nav">NAV SHOULD BE DROPPED</nav>
+  <header>HEADER SHOULD BE DROPPED</header>
+  <h1>Synthetic Edge Cases</h1>
+  <p>Entity test: A &amp; B &lt; C &gt; D &#39;quoted&#39; &nbsp; spaced &mdash; dash &#x2014; too.</p>
+  <h2>1 Introduction</h2>
+  <p>Unclosed paragraph with <b>bold</b> text and a stray &lt;tag&gt;.
+  <div class="math">Inline math <math alttext="x_{t}^{2} + \alpha &lt; \beta"><semantics><mi>x</mi></semantics></math> end.</div>
+  <p>Math without alttext <math><semantics><mi>y</mi></semantics></math> dropped.</p>
+  <h3>1.1 Sub Section</h3>
+  <ul>
+    <li>First item &amp; one</li>
+    <li>Second item</li>
+  </ul>
+  <figure><img src="x.png" alt="ignored"><figcaption>Figure 1: A caption.</figcaption></figure>
+  <script type="text/javascript">var leaked = "SCRIPT MUST NOT APPEAR";</script>
+  <h2>2 Methods</h2>
+  <p>Some method text with <span class="inline">inline span</span> and   lots of    spaces.</p>
+  <br>
+  <h4>2.1.1 Deep Note</h4>
+  <p>Last body paragraph.</p>
+  <h2>References</h2>
+  <ol><li>[1] REFERENCE MUST BE CUT.</li></ol>
+  <footer>FOOTER SHOULD BE DROPPED</footer>
+</body>
+</html>

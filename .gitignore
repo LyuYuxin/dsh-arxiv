@@ -1,0 +1,8 @@
+# Local/dev artifacts (not part of the published plugin)
+node_modules/
+test-artifacts/
+scratch/
+CONTRACT.md
+*.log
+*.bak
+.DS_Store
