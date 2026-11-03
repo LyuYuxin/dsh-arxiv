@@ -1,6 +1,6 @@
 {
   "name": "dsh-arxiv",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "arXiv reading as a DeepSeek Harness left-sidebar panel: structured paper rendering (sections, tables, figures, equations), original text beside AI summary and Q&A, and a session bridge that lets the agent read the paper through the arxiv tool.",
   "type": "module",
   "license": "MIT",

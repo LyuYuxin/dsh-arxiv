@@ -37,7 +37,7 @@
 
 前提：已安装并登录 DeepSeek Harness（桌面端至少启动过一次），需要 v0.2.1-rc 系列。
 
-**方式：从 GitHub 源码安装（v0.3.0 推荐）**
+**方式：从 GitHub 源码安装（v0.3.x 推荐）**
 
 ```powershell
 git clone https://github.com/LyuYuxin/dsh-arxiv.git

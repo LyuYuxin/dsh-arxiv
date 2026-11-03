@@ -775,31 +775,71 @@ window.__ModuleLoader__.load({
     const INLINE = /(\*\*[^*\n]+\*\*|`[^`\n]+`|\$[^$\n]+\$|\[[^\]\n]+\]\([^)\s]+\))/g
 
     function mathText(input) {
-      let value = String(input ?? '')
-      for (let round = 0; round < 3; round += 1) {
-        value = value
-          .replace(/\\mathrm\{([^{}]*)\}/g, '$1')
-          .replace(/\\text\{([^{}]*)\}/g, '$1')
-          .replace(/\\mathit\{([^{}]*)\}/g, '$1')
-          .replace(/\\mathbf\{([^{}]*)\}/g, '$1')
-          .replace(/\\operatorname\{([^{}]*)\}/g, '$1')
-          .replace(/\\mathbb\{([^{}]*)\}/g, '$1')
-          .replace(/\\mathcal\{([^{}]*)\}/g, '$1')
+      const symbols = {
+        cdot: '·', times: '×', pm: '±', leq: '≤', geq: '≥', neq: '≠', approx: '≈',
+        infty: '∞', rightarrow: '→', to: '→', leftarrow: '←', in: '∈', sum: '∑', prod: '∏', left: '', right: '',
       }
-      return value
-        .replace(/\\sqrt\[3\]\{([^{}]*)\}/g, '∛($1)')
-        .replace(/\\sqrt\{([^{}]*)\}/g, '√($1)')
-        .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, '($1)/($2)')
-        .replace(/\\left|\\right/g, '')
-        .replace(/\\cdot/g, '·').replace(/\\times/g, '×').replace(/\\pm/g, '±')
-        .replace(/\\leq/g, '≤').replace(/\\geq/g, '≥').replace(/\\neq/g, '≠')
-        .replace(/\\approx/g, '≈').replace(/\\infty/g, '∞')
-        .replace(/\\rightarrow/g, '→').replace(/\\to/g, '→')
-        .replace(/\^\{([^{}]*)\}/g, '^$1')
-        .replace(/_\{([^{}]*)\}/g, '_$1')
-        .replace(/\\[a-zA-Z]+/g, (command) => command.slice(1))
-        .replace(/[{}]/g, '')
-        .trim()
+      const readGroup = (text, open) => {
+        if (text[open] !== '{') return null
+        let depth = 0
+        for (let index = open; index < text.length; index += 1) {
+          if (text[index] === '{') depth += 1
+          else if (text[index] === '}') {
+            depth -= 1
+            if (depth === 0) return { content: text.slice(open + 1, index), end: index + 1 }
+          }
+        }
+        return null
+      }
+      const convert = (text) => {
+        let out = ''
+        let index = 0
+        while (index < text.length) {
+          if (text.startsWith('\\frac', index)) {
+            const numerator = readGroup(text, index + 5)
+            const denominator = numerator === null ? null : readGroup(text, numerator.end)
+            if (numerator !== null && denominator !== null) {
+              out += `(${convert(numerator.content)})/(${convert(denominator.content)})`
+              index = denominator.end
+              continue
+            }
+          }
+          if (text.startsWith('\\sqrt', index)) {
+            const argument = readGroup(text, index + 5)
+            if (argument !== null) {
+              out += `√(${convert(argument.content)})`
+              index = argument.end
+              continue
+            }
+          }
+          const command = /^\\([a-zA-Z]+)\s*/.exec(text.slice(index))
+          if (command !== null) {
+            const name = command[1]
+            const after = index + command[0].length
+            const argument = text[after] === '{' ? readGroup(text, after) : null
+            if (argument !== null) {
+              out += convert(argument.content)
+              index = argument.end
+              continue
+            }
+            out += symbols[name] !== undefined ? symbols[name] : name
+            index = after
+            continue
+          }
+          if ((text[index] === '^' || text[index] === '_') && text[index + 1] === '{') {
+            const group = readGroup(text, index + 1)
+            if (group !== null) {
+              out += text[index] + convert(group.content)
+              index = group.end
+              continue
+            }
+          }
+          if (text[index] !== '{' && text[index] !== '}') out += text[index]
+          index += 1
+        }
+        return out
+      }
+      return convert(String(input ?? '')).trim()
     }
 
     function renderInline(text, keyBase) {
@@ -1918,7 +1958,7 @@ window.__ModuleLoader__.load({
         paperTextRef.current = ''
         const textPromise = getJson('text', { id: input, body: '1' }, controller.signal)
           .then((body) => {
-            if (importRef.current !== controller) return null
+            if (!aliveRef.current || controller.signal.aborted) return null
             const info = {
               source: body.source,
               chars: body.chars,
@@ -1945,15 +1985,13 @@ window.__ModuleLoader__.load({
         // extracted plain text when the host/doc route is unavailable).
         const docPromise = getJson('doc', { id: input }, controller.signal)
           .then((body) => {
-            if (importRef.current !== controller) return null
-            if (aliveRef.current) {
-              setDocPending(false)
-              setDoc(cleanDoc(body))
-            }
+            if (!aliveRef.current || controller.signal.aborted) return null
+            setDocPending(false)
+            setDoc(cleanDoc(body))
             return body
           })
           .catch(() => {
-            if (importRef.current === controller && aliveRef.current) setDocPending(false)
+            if (aliveRef.current && !controller.signal.aborted) setDocPending(false)
             return null
           })
         void docPromise
@@ -2319,7 +2357,7 @@ window.__ModuleLoader__.load({
                 'data-axv': 'library-toggle',
                 onClick: () => setLibraryOpen((value) => !value),
               }, `${t('library')}${library.length > 0 ? ` (${library.length})` : ''}`))),
-          h('div', { className: 'axv-import-row' },
+          h('div', { className: 'axv-import-row', 'data-axv': 'import-row' },
             h('div', { className: 'axv-import' },
               h('input', {
                 className: 'axv-input',
@@ -2360,7 +2398,7 @@ window.__ModuleLoader__.load({
                 'aria-pressed': viewMode === mode,
                 onClick: () => setViewMode(mode),
               }, label))) : null),
-          h('div', { className: 'axv-meta-row' },
+          h('div', { className: 'axv-meta-row', 'data-axv': 'meta-row' },
             error !== null ? h('div', { className: 'axv-error', 'data-axv': 'error', role: 'alert' }, error) : null,
             status !== '' || importing || textPending || docPending ? h('div', { className: 'axv-status', 'data-axv': 'status' },
               (importing || textPending || docPending) ? h('span', { className: 'axv-dot' }) : null,

@@ -216,6 +216,10 @@ Known v0.3 findings surfaced by these runs (client-side, reported to the owner):
   settles after `/meta` is silently dropped and the paper pane stays on the
   structured-loading placeholder (falls back to plain text). The preview delays its
   `/meta` proxy by 250ms to stay deterministic until this is fixed.
+- `mathText()` flattens simple LaTeX (`\mathrm`, `^{}`, `_{}`, one-level
+  `\sqrt`/`\frac`) but nested-brace arguments leak as flat tokens: e.g.
+  `\frac{QK^{T}}{\sqrt{d_{k}}}` renders as `fracQK^Tsqrtd_k` in `doc-equation`
+  (the original LaTeX is still in the title tooltip).
 - The v0.3 spec lists `[data-axv=import-row]` / `[data-axv=meta-row]`; `client.js`
   renders `.axv-import-row` / `.axv-meta-row` without those attributes, so the
   tools fall back to the class names.
