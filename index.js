@@ -7,6 +7,8 @@
 //   POST /dsh-arxiv/ai                        -> text/event-stream of JSON records
 //   GET  /dsh-arxiv/attach?sessionId=...      -> { ok, attached }
 //   POST /dsh-arxiv/attach                    -> { ok, attached } (body: sessionId, paperId|null)
+//   GET  /dsh-arxiv/doc?id=<id-or-url>        -> { ok, id, source, sections, blocks }
+//   GET  /dsh-arxiv/img?src=<absolute-url>    -> image bytes (allow-listed hosts only)
 //
 // The paper text never reaches the browser: the /ai route reads it from this
 // process's cache and forwards streamed model deltas only. Model calls go
@@ -15,6 +17,8 @@
 // v0.2 additions: the attach table above, a model-facing `arxiv` tool (registered
 // through the optional `tools` service), and an `agent/pre-step` listener that
 // tells the attached session's agent which paper the user is reading.
+// v0.3 additions: the structured `/doc` route for the typeset paper pane and the
+// allow-listed `/img` proxy for ar5iv figures.
 
 import {
   ArxivError,
@@ -28,6 +32,7 @@ import {
   createAttachStore,
   createPreStepInjector,
 } from './src/attach.mjs'
+import { abstractDocument, fetchPaperDocument } from './src/paper.mjs'
 import { buildQaMessages, buildSummaryMessages } from './src/prompt.mjs'
 
 export const name = 'dsh-arxiv'
@@ -36,14 +41,19 @@ export const name = 'dsh-arxiv'
 export const inject = ['webServer']
 
 const ROUTE = '/dsh-arxiv'
-const VERSION = '0.2.0'
+const VERSION = '0.3.0'
 const CACHE_MAX = 20
 const META_TTL_MS = 30 * 60 * 1000
 const TEXT_TTL_MS = 30 * 60 * 1000
+const DOC_TTL_MS = 30 * 60 * 1000
 const META_TIMEOUT_MS = 10_000
 const TEXT_TIMEOUT_MS = 20_000
 const BODY_LIMIT = 96 * 1024
 const PING_INTERVAL_MS = 15_000
+const IMG_MAX_BYTES = 8 * 1024 * 1024
+const IMG_TIMEOUT_MS = 15_000
+const IMG_ALLOWED_HOSTS = new Set(['ar5iv.labs.arxiv.org', 'arxiv.org', 'www.arxiv.org'])
+const IMG_FAILURE = Object.freeze({ ok: false, error: Object.freeze({ code: 'not-found', message: 'image unavailable' }) })
 
 /**
  * @param {import('node:http').ServerResponse} response
@@ -135,6 +145,97 @@ function writeSse(response, record) {
   return true
 }
 
+/** Allow-listed, https-only image URL, or null. */
+function allowedImageUrl(value) {
+  if (typeof value !== 'string' || value === '') return null
+  let url
+  try {
+    url = new URL(value)
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'https:') return null
+  if (url.username !== '' || url.password !== '') return null
+  if (url.port !== '' && url.port !== '443') return null
+  if (!IMG_ALLOWED_HOSTS.has(url.hostname)) return null
+  return url
+}
+
+/**
+ * Fetch one allow-listed image, re-validating every redirect hop so an
+ * allow-listed host cannot bounce the proxy to an arbitrary origin.
+ * @param {URL} startUrl
+ */
+async function fetchAllowedImage(startUrl) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => { controller.abort() }, IMG_TIMEOUT_MS)
+  try {
+    let current = startUrl
+    for (let hop = 0; hop < 3; hop += 1) {
+      const response = await fetch(current.href, {
+        signal: controller.signal,
+        redirect: 'manual',
+        headers: { accept: 'image/*' },
+      })
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location')
+        if (location === null) return null
+        let next
+        try {
+          next = new URL(location, current)
+        } catch {
+          return null
+        }
+        current = allowedImageUrl(next.href)
+        if (current === null) return null
+        continue
+      }
+      return response
+    }
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * Read a response body with the hard byte cap.
+ * @param {Response} response
+ * @returns {Promise<Buffer|null>}
+ */
+async function readImageBody(response) {
+  const declared = Number(response.headers.get('content-length'))
+  if (Number.isFinite(declared) && declared > IMG_MAX_BYTES) return null
+  if (response.body === null) return null
+  const reader = response.body.getReader()
+  const chunks = []
+  let total = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > IMG_MAX_BYTES) {
+        try {
+          await reader.cancel()
+        } catch {
+          /* already closed */
+        }
+        return null
+      }
+      chunks.push(Buffer.from(value))
+    }
+  } catch {
+    try {
+      await reader.cancel()
+    } catch {
+      /* already closed */
+    }
+    return null
+  }
+  return Buffer.concat(chunks)
+}
+
 /** @param {unknown} value */
 function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -189,6 +290,10 @@ export function apply(ctx, config = {}) {
   const textCache = new Map()
   /** in-flight full-text fetches keyed by base id */
   const textInflight = new Map()
+  /** structured paper documents keyed by base id */
+  const docCache = new Map()
+  /** in-flight structured document builds keyed by base id */
+  const docInflight = new Map()
   /** session id -> attached paper metadata (LRU, at most 50 sessions) */
   const attachStore = createAttachStore()
   /** Memoized optional import for createUserMessage; the fallback keeps the plugin usable. */
@@ -278,6 +383,42 @@ export function apply(ctx, config = {}) {
     }
     const meta = await ensureMeta(id)
     return { source: 'abstract', text: meta.abstract, sections: ['Abstract'] }
+  }
+
+  /**
+   * Structured document for the typeset paper pane. Cached separately from the
+   * plain text because the client renders blocks, not a text blob.
+   * @param {NonNullable<ReturnType<typeof parseArxivId>>} id
+   * @returns {Promise<{ id: string, source: string, sections: object[], blocks: object[] }>}
+   */
+  async function ensureDoc(id) {
+    const cached = touch(docCache, id.baseId)
+    if (cached !== undefined) return cached.doc
+    const running = docInflight.get(id.baseId)
+    if (running !== undefined) return running
+    /** @type {Promise<{ id: string, source: string, sections: object[], blocks: object[] }>} */
+    const task = (async () => {
+      try {
+        const meta = await ensureMeta(id)
+        let doc
+        try {
+          doc = await fetchPaperDocument(meta)
+        } catch {
+          doc = abstractDocument(meta)
+        }
+        // An abstract-only document is a transient degradation: never pin it in
+        // the 30-minute cache, so a later request retries structured extraction.
+        if (doc.source !== 'abstract') {
+          docCache.set(id.baseId, { at: Date.now(), doc })
+          prune(docCache, DOC_TTL_MS)
+        }
+        return doc
+      } finally {
+        docInflight.delete(id.baseId)
+      }
+    })()
+    docInflight.set(id.baseId, task)
+    return task
   }
 
   // Model-facing `arxiv` tool. The tools service is optional: register
@@ -397,6 +538,65 @@ export function apply(ctx, config = {}) {
         sendJson(response, 200, { ok: true, attached: attachStore.attach(sessionId, paper) })
       } catch (error) {
         sendJson(response, 200, errorBody(error))
+      }
+    },
+
+    /**
+     * Structured paper document for the typeset reading pane.
+     * @param {import('node:http').IncomingMessage} request
+     * @param {import('node:http').ServerResponse} response
+     */
+    async doc(request, response) {
+      try {
+        const url = new URL(request.url ?? '/', 'http://localhost')
+        const id = requireId(url.searchParams.get('id'))
+        const doc = await ensureDoc(id)
+        sendJson(response, 200, { ok: true, ...doc })
+      } catch (error) {
+        sendJson(response, 200, errorBody(error))
+      }
+    },
+
+    /**
+     * Same-origin image proxy for ar5iv figures (CSP / hotlink protection).
+     * Only https URLs on the allow-listed arXiv hosts, image responses only,
+     * at most 8 MB and 15 s. All failures are one opaque 404 JSON body.
+     * @param {import('node:http').IncomingMessage} request
+     * @param {import('node:http').ServerResponse} response
+     */
+    async img(request, response) {
+      if (request.method !== 'GET') {
+        sendJson(response, 405, { ok: false, error: { code: 'method', message: 'GET only' } })
+        return
+      }
+      const target = allowedImageUrl(new URL(request.url ?? '/', 'http://localhost').searchParams.get('src'))
+      if (target === null) {
+        sendJson(response, 404, IMG_FAILURE)
+        return
+      }
+      try {
+        const upstream = await fetchAllowedImage(target)
+        if (upstream === null || upstream.status !== 200 || upstream.body === null) {
+          sendJson(response, 404, IMG_FAILURE)
+          return
+        }
+        const contentType = (upstream.headers.get('content-type') ?? '').trim()
+        if (!/^image\//i.test(contentType)) {
+          sendJson(response, 404, IMG_FAILURE)
+          return
+        }
+        const body = await readImageBody(upstream)
+        if (body === null) {
+          sendJson(response, 404, IMG_FAILURE)
+          return
+        }
+        response.statusCode = 200
+        response.setHeader('content-type', contentType)
+        response.setHeader('content-length', String(body.byteLength))
+        response.setHeader('cache-control', 'public, max-age=3600')
+        response.end(body)
+      } catch {
+        sendJson(response, 404, IMG_FAILURE)
       }
     },
 

@@ -1,7 +1,7 @@
 {
   "name": "dsh-arxiv",
-  "version": "0.2.0",
-  "description": "arXiv reading as a DeepSeek Harness left-sidebar panel: import by arXiv ID, original text beside AI summary and Q&A, attach the paper to a session so its agent can read it through the arxiv tool.",
+  "version": "0.3.0",
+  "description": "arXiv reading as a DeepSeek Harness left-sidebar panel: structured paper rendering (sections, tables, figures, equations), original text beside AI summary and Q&A, and a session bridge that lets the agent read the paper through the arxiv tool.",
   "type": "module",
   "license": "MIT",
   "author": "Lyu Yuxin",
@@ -67,4 +67,3 @@
     }
   }
 }
-

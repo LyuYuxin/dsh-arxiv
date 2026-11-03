@@ -171,6 +171,138 @@ window.__ModuleLoader__.load({
 .axv-star{border:0;background:transparent;color:inherit;cursor:pointer;padding:0;line-height:1;font-size:11px;opacity:.55}
 .axv-star:hover{opacity:1}
 .axv-toast{font-size:11.5px;color:var(--dsw-alias-brand-primary)}
+/* ── v0.3 spacious reading workspace ─────────────────────────────────────── */
+.axv-root{overflow:hidden}
+.axv-shell{display:flex;flex-direction:column;height:100%;min-height:0;box-sizing:border-box;padding:12px 18px 10px;gap:10px}
+.axv-topbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:none;min-width:0}
+.axv-brand-name{font-size:17px}
+.axv-brand-sub{font-size:11.5px}
+.axv-import{display:flex;flex:1 1 340px;min-width:260px;gap:8px}
+.axv-import .axv-input{height:44px;font-size:14px;border-radius:12px;padding:0 14px}
+.axv-import .axv-btn{height:44px;border-radius:12px;padding:0 22px;font-size:14px}
+.axv-top-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:none}
+.axv-model-trigger,.axv-session-trigger{height:34px;font-size:12.5px;padding:0 12px}
+.axv-attach{height:34px;font-size:12.5px;padding:0 12px}
+.axv-top-actions .axv-btn-outline{height:34px;font-size:12.5px}
+.axv-top-actions .axv-btn-ghost{height:34px;font-size:12.5px}
+.axv-meta-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:none;min-height:18px}
+.axv-body{display:flex;flex:1;min-height:0;border:1px solid var(--dsw-alias-border-l2);border-radius:16px;overflow:hidden;background:var(--dsw-alias-bg-layer-1)}
+.axv-panes{display:flex;flex:1;min-height:0;min-width:0}
+.axv-pane{display:flex;flex-direction:column;min-width:0;min-height:0}
+.axv-ai-pane{flex:0 0 46%}
+.axv-ai-pane .axv-pane-body{flex:1;min-height:0;display:flex;flex-direction:column;padding:14px 16px 12px}
+.axv-paper-pane{flex:1 1 0;border-left:1px solid var(--dsw-alias-border-l2)}
+.axv-pane-body{flex:1;min-height:0;overflow-y:auto}
+.axv-pane-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 14px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);flex:none;min-height:44px}
+.axv-pane-scroll{flex:1;min-height:0;overflow-y:auto;padding:16px 20px 24px;scrollbar-width:thin}
+.axv-tabs{display:inline-flex;padding:3px;gap:2px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1)}
+.axv-tab{border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;font-weight:550;padding:5px 15px;border-radius:8px;cursor:pointer;white-space:nowrap}
+.axv-tab:hover{color:var(--dsw-alias-label-primary)}
+.axv-tab[data-active="true"]{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+.axv-tab:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-brand-primary));outline-offset:1px}
+.axv-tab-badge{display:inline-block;width:6px;height:6px;margin-left:6px;border-radius:50%;background:var(--dsw-alias-brand-primary);vertical-align:1px}
+.axv-splitter{flex:0 0 7px;position:relative;cursor:col-resize;background:transparent;margin-left:-1px;border-left:1px solid var(--dsw-alias-border-l2);touch-action:none}
+.axv-splitter::after{content:"";position:absolute;top:0;bottom:0;left:2px;right:2px;background:var(--dsw-alias-brand-primary);opacity:0;transition:opacity .15s ease}
+.axv-splitter:hover::after,.axv-splitter[data-dragging="true"]::after{opacity:.35}
+.axv-mode-ai .axv-paper-pane,.axv-mode-ai .axv-splitter{display:none}
+.axv-mode-source .axv-ai-pane,.axv-mode-source .axv-splitter{display:none}
+.axv-mode-ai .axv-ai-pane{flex:1 1 auto}
+.axv-mode-source .axv-paper-pane{flex:1 1 auto;border-left:0}
+.axv-doc{max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:15px;font-size:14.5px;line-height:1.85;color:var(--dsw-alias-label-primary);overflow-wrap:anywhere}
+.axv-doc-heading{font-weight:650;line-height:1.45;margin:12px 0 0;scroll-margin-top:10px}
+.axv-doc-h1{font-size:21px}.axv-doc-h2{font-size:17.5px}.axv-doc-h3{font-size:15.5px}.axv-doc-h4{font-size:14.5px;color:var(--dsw-alias-label-secondary)}
+.axv-doc-p{margin:0;white-space:pre-wrap}
+.axv-doc-abstract{border-left:3px solid var(--dsw-alias-border-l2);padding:2px 0 2px 14px;color:var(--dsw-alias-label-secondary)}
+.axv-doc-list{margin:0;padding-left:26px;display:flex;flex-direction:column;gap:7px}
+.axv-doc-tablewrap{overflow-x:auto;border:1px solid var(--dsw-alias-border-l2);border-radius:10px}
+.axv-doc-table{border-collapse:collapse;width:100%;font-size:12.8px;line-height:1.6}
+.axv-doc-table th,.axv-doc-table td{border-bottom:1px solid var(--dsw-alias-border-l2);padding:8px 11px;text-align:left;vertical-align:top;min-width:56px}
+.axv-doc-table th{background:var(--dsw-alias-bg-layer-2);font-weight:600}
+.axv-doc-figure{margin:4px 0;display:flex;flex-direction:column;gap:7px;align-items:center}
+.axv-doc-figure img{max-width:100%;border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
+.axv-doc-figcaption{font-size:12px;line-height:1.65;color:var(--dsw-alias-label-secondary);text-align:center}
+.axv-doc-equation{margin:2px 0;padding:11px 14px;border-radius:9px;background:var(--dsw-alias-bg-layer-2);font-family:var(--ds-font-family-code,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:13px;white-space:pre-wrap;text-align:center;overflow-x:auto}
+.axv-doc-quote{border-left:3px solid var(--dsw-alias-border-l2);padding-left:14px;color:var(--dsw-alias-label-secondary)}
+.axv-toc{display:flex;flex-wrap:wrap;gap:6px;padding:2px 0 8px;border-bottom:1px dashed var(--dsw-alias-border-l2);margin-bottom:4px}
+.axv-toc-btn{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 11px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}
+.axv-toc-btn:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-interactive-bg-hover)}
+.axv-doc-loading{display:flex;align-items:center;gap:8px;color:var(--dsw-alias-label-tertiary);font-size:13px;padding:24px 0}
+/* bigger AI surfaces */
+.axv-ai-pane .axv-section-title{font-size:13.5px}
+.axv-ai-pane .axv-section-caption{font-size:12px}
+.axv-summary{padding:18px 20px;font-size:14px;line-height:1.8;min-height:140px}
+.axv-md{gap:12px}
+.axv-md h1{font-size:19px}.axv-md h2{font-size:17.5px}.axv-md h3{font-size:15.5px}.axv-md h4{font-size:14.5px}
+.axv-md p{font-size:14px;line-height:1.82}
+.axv-md li{font-size:14px;line-height:1.8}
+.axv-md code{font-size:12.5px}
+.axv-qa{gap:14px}
+.axv-msg-user{align-self:flex-end;max-width:88%}
+.axv-msg-user .axv-bubble{padding:11px 16px;font-size:13.5px;line-height:1.7;border-radius:15px 15px 4px 15px}
+.axv-msg-assistant .axv-bubble{padding:15px 18px;font-size:14px;line-height:1.8;border-radius:13px}
+.axv-msg-role{font-size:11px}
+.axv-ask{position:sticky;bottom:0;padding:12px 0 2px;gap:10px;background:linear-gradient(180deg,transparent,var(--dsw-alias-bg-layer-1) 40%)}
+.axv-ask .axv-input{min-height:46px;padding:11px 14px;font-size:14px;border-radius:12px;line-height:1.5}
+.axv-ask .axv-btn{height:46px;border-radius:12px;padding:0 22px;font-size:14px}
+.axv-suggest .axv-chip{padding:6px 13px;font-size:12.5px}
+.axv-qa-fill{flex:1;min-height:0;display:flex;flex-direction:column;gap:10px}
+.axv-qa-fill .axv-qa{flex:1;min-height:0;overflow-y:auto;padding-right:4px;scrollbar-width:thin}
+.axv-qa-fill .axv-ask{position:static;flex:none;background:transparent}
+/* hero + library + misc */
+.axv-empty{display:flex;flex-direction:column;gap:20px;max-width:880px;margin:0 auto;padding:4vh 8px}
+.axv-empty-title{font-size:30px;line-height:1.25;font-weight:700}
+.axv-empty-sub{font-size:14.5px;line-height:1.8;color:var(--dsw-alias-label-secondary);max-width:700px}
+.axv-examples{display:flex;flex-wrap:wrap;gap:10px}
+.axv-example{display:flex;flex-direction:column;gap:3px;padding:13px 16px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1);color:inherit;font:inherit;text-align:left;cursor:pointer;max-width:300px}
+.axv-example:hover{border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-interactive-bg-hover)}
+.axv-example-id{font-size:13px}.axv-example-title{font-size:12px}
+.axv-library-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:none;min-width:0;padding:0 2px}
+.axv-library-chip{max-width:none;padding:5px 12px;font-size:12.5px}
+.axv-star{font-size:12px}
+.axv-library-toggle{height:34px;font-size:12.5px}
+.axv-status{font-size:12.5px;min-height:18px;color:var(--dsw-alias-label-secondary)}
+.axv-error{font-size:13px;padding:10px 14px}
+.axv-foot{padding:0 2px;font-size:11px}
+.axv-paper-info{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.axv-paper-info .axv-paper-title{font-size:15px;max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@container (max-width: 920px){
+  .axv-panes.axv-mode-split{flex-direction:column}
+  .axv-mode-split .axv-ai-pane{flex:0 0 auto;max-height:46vh;border-bottom:1px solid var(--dsw-alias-border-l2)}
+  .axv-mode-split .axv-paper-pane{border-left:0;flex:1 1 0}
+  .axv-mode-split .axv-splitter{display:none}
+}
+.axv-import-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:none;min-width:0}
+.axv-import-row .axv-import{flex:1 1 420px}
+.axv-empty-wrap{flex:1;min-height:0;overflow-y:auto;display:flex;align-items:center;justify-content:center;padding:28px}
+.axv-empty{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(320px,1fr);gap:40px;align-items:center;max-width:1080px;width:100%;margin:0;padding:0}
+.axv-hero-main{display:flex;flex-direction:column;gap:18px}
+.axv-steps{display:flex;flex-direction:column;gap:13px;padding:22px 24px;border:1px solid var(--dsw-alias-border-l2);border-radius:16px;background:var(--dsw-alias-bg-layer-2)}
+.axv-step{display:flex;gap:12px;align-items:flex-start}
+.axv-step-num{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;flex:none;border-radius:50%;background:color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent);color:var(--dsw-alias-brand-primary);font-size:12.5px;font-weight:650}
+.axv-step-body{display:flex;flex-direction:column;gap:2px;min-width:0}
+.axv-step-title{font-size:14px;font-weight:600}
+.axv-step-sub{font-size:12.5px;color:var(--dsw-alias-label-secondary);line-height:1.6}
+.axv-hero-note{font-size:12px;color:var(--dsw-alias-label-tertiary);border-top:1px dashed var(--dsw-alias-border-l2);padding-top:11px;margin-top:2px}
+@container (max-width: 1100px){
+  .axv-empty{grid-template-columns:minmax(0,1fr);gap:26px}
+  .axv-steps{order:2}
+}
+.axv-splitter::before{content:"";position:absolute;top:50%;left:50%;width:3px;height:3px;border-radius:50%;background:var(--dsw-alias-label-tertiary);box-shadow:0 -6px 0 var(--dsw-alias-label-tertiary),0 6px 0 var(--dsw-alias-label-tertiary);transform:translate(-50%,-50%);opacity:.6;pointer-events:none}
+.axv-pane-body > .axv-section{flex:1;min-height:0}
+.axv-library-toggle{border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:0 12px}
+.axv-summary{font-size:14.5px}
+.axv-ai-pane .axv-md h2{font-size:18px}
+.axv-ai-pane .axv-md h3{font-size:15.5px}
+.axv-pane{height:auto;overflow:visible;padding:0;gap:0}
+.axv-ai-pane{flex:0 0 50%}
+.axv-empty{max-width:1120px}
+.axv-empty-title{font-size:34px}
+.axv-empty-sub{font-size:15px}
+.axv-examples{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.axv-example{max-width:none}
+.axv-paper-title{max-width:520px}
+.axv-ai-after{display:flex;justify-content:center;padding:18px 0 6px}
+
 `
 
     // ── dictionaries ──────────────────────────────────────────────────────────
@@ -642,6 +774,34 @@ window.__ModuleLoader__.load({
     // ── markdown (deliberately small: headings, lists, code, bold, links, math) ─
     const INLINE = /(\*\*[^*\n]+\*\*|`[^`\n]+`|\$[^$\n]+\$|\[[^\]\n]+\]\([^)\s]+\))/g
 
+    function mathText(input) {
+      let value = String(input ?? '')
+      for (let round = 0; round < 3; round += 1) {
+        value = value
+          .replace(/\\mathrm\{([^{}]*)\}/g, '$1')
+          .replace(/\\text\{([^{}]*)\}/g, '$1')
+          .replace(/\\mathit\{([^{}]*)\}/g, '$1')
+          .replace(/\\mathbf\{([^{}]*)\}/g, '$1')
+          .replace(/\\operatorname\{([^{}]*)\}/g, '$1')
+          .replace(/\\mathbb\{([^{}]*)\}/g, '$1')
+          .replace(/\\mathcal\{([^{}]*)\}/g, '$1')
+      }
+      return value
+        .replace(/\\sqrt\[3\]\{([^{}]*)\}/g, '∛($1)')
+        .replace(/\\sqrt\{([^{}]*)\}/g, '√($1)')
+        .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, '($1)/($2)')
+        .replace(/\\left|\\right/g, '')
+        .replace(/\\cdot/g, '·').replace(/\\times/g, '×').replace(/\\pm/g, '±')
+        .replace(/\\leq/g, '≤').replace(/\\geq/g, '≥').replace(/\\neq/g, '≠')
+        .replace(/\\approx/g, '≈').replace(/\\infty/g, '∞')
+        .replace(/\\rightarrow/g, '→').replace(/\\to/g, '→')
+        .replace(/\^\{([^{}]*)\}/g, '^$1')
+        .replace(/_\{([^{}]*)\}/g, '_$1')
+        .replace(/\\[a-zA-Z]+/g, (command) => command.slice(1))
+        .replace(/[{}]/g, '')
+        .trim()
+    }
+
     function renderInline(text, keyBase) {
       const nodes = []
       let last = 0
@@ -656,7 +816,7 @@ window.__ModuleLoader__.load({
         } else if (token.startsWith('`')) {
           nodes.push(h('code', { key }, token.slice(1, -1)))
         } else if (token.startsWith('$')) {
-          nodes.push(h('span', { key, className: 'axv-math' }, token.slice(1, -1)))
+          nodes.push(h('span', { key, className: 'axv-math', title: token.slice(1, -1) }, mathText(token.slice(1, -1))))
         } else {
           const close = token.indexOf('](')
           const label = token.slice(1, close)
@@ -723,7 +883,7 @@ window.__ModuleLoader__.load({
             }
             math = collected.join('\n')
           }
-          blocks.push(h('div', { key: key++, className: 'axv-math-block' }, math.trim()))
+          blocks.push(h('div', { key: key++, className: 'axv-math-block' }, mathText(math.trim())))
           continue
         }
         const heading = /^(#{1,6})\s+(.*)$/.exec(line)
@@ -938,7 +1098,6 @@ window.__ModuleLoader__.load({
           onClick: () => setOpen((value) => !value),
           disabled: disabled || switching,
         },
-        h('span', { className: 'axv-model-provider' }, provider || t('model')),
         h('span', { className: 'axv-model-name', 'data-axv': 'model' }, label || t('modelLoading')),
         h('span', { style: { display: 'inline-flex', flex: 'none', color: 'var(--dsw-alias-label-tertiary)' } }, h(IconChevron))),
         open ? h('div', { className: 'axv-menu', role: 'listbox', 'aria-label': t('model') },
@@ -1044,15 +1203,17 @@ window.__ModuleLoader__.load({
     function SummarySection(props) {
       const {
         t, text, phase, source, modelLabel, cached, canUpgrade, onGenerate, onStop, onUpgrade, onCopy,
-        copied, staleModel, reasoning,
+        copied, staleModel, reasoning, hideTitle,
       } = props
       const streaming = phase === 'streaming'
+      const headerBits = []
+      if (hideTitle !== true) headerBits.push(h('span', { key: 'title', className: 'axv-section-title' }, t('summary')))
+      if (source) headerBits.push(h('span', { key: 'source', className: 'axv-section-caption' }, `${t('summaryFrom')} ${sourceLabel(t, source)}`))
+      if (cached) headerBits.push(h('span', { key: 'cached', className: 'axv-tag' }, t('summaryCached')))
+      if (modelLabel) headerBits.push(h('span', { key: 'model', className: 'axv-section-caption' }, t('summaryBy', { model: modelLabel })))
       return h('section', { className: 'axv-section' },
         h('div', { className: 'axv-section-head' },
-          h('span', { className: 'axv-section-title' }, t('summary')),
-          source ? h('span', { className: 'axv-section-caption' }, `${t('summaryFrom')} ${sourceLabel(t, source)}`) : null,
-          cached ? h('span', { className: 'axv-tag' }, t('summaryCached')) : null,
-          modelLabel ? h('span', { className: 'axv-section-caption' }, t('summaryBy', { model: modelLabel })) : null,
+          headerBits,
           h('span', { className: 'axv-spacer' }),
           text && !streaming ? h('button', {
             type: 'button',
@@ -1096,10 +1257,10 @@ window.__ModuleLoader__.load({
 
     function QaSection(props) {
       const {
-        t, paper, messages, question, onQuestion, onAsk, onStop, streaming, askRef, listRef, disabled,
+        t, paper, messages, question, onQuestion, onAsk, onStop, streaming, askRef, listRef, disabled, hideTitle, fill,
       } = props
-      return h('section', { className: 'axv-section' },
-        h('div', { className: 'axv-section-head' },
+      return h('section', { className: `axv-section${fill === true ? ' axv-qa-fill' : ''}` },
+        hideTitle === true ? null : h('div', { className: 'axv-section-head' },
           h('span', { className: 'axv-section-title' }, t('qa')),
           h('span', { className: 'axv-section-caption' }, t('qaHint'))),
         messages.length > 0 ? h('div', { className: 'axv-qa', 'data-axv': 'messages', ref: listRef },
@@ -1159,6 +1320,116 @@ window.__ModuleLoader__.load({
             }, t('ask'))) : null)
     }
 
+    // ── structured paper rendering (v0.3) ─────────────────────────────────────
+    function proxiedImage(src) {
+      if (typeof src !== 'string' || src === '') return ''
+      return `${ROUTE}/img?src=${encodeURIComponent(src)}`
+    }
+
+    function cleanDoc(body) {
+      if (body === null || typeof body !== 'object' || !Array.isArray(body.blocks)) return body
+      const blocks = body.blocks.filter((block, index) => {
+        if (index > 6 || block === null || typeof block !== 'object' || block.type !== 'paragraph') return true
+        const text = String(block.text ?? '')
+        return !/Provided proper attribution|ar5iv|permission to reproduce the tables and figures/i.test(text)
+      })
+      return blocks.length === body.blocks.length ? body : Object.assign({}, body, { blocks })
+    }
+
+    function DocBlock({ block, index, t }) {
+      if (block === null || typeof block !== 'object') return null
+      const type = block.type
+      if (type === 'heading') {
+        const level = Math.min(Math.max(Number(block.level) || 2, 1), 4)
+        return h(`h${level + 1}`, {
+          className: `axv-doc-heading axv-doc-h${level}`,
+          'data-axv': 'doc-heading',
+          'data-doc-index': index,
+          id: `axv-doc-${index}`,
+        }, String(block.text ?? ''))
+      }
+      if (type === 'paragraph') {
+        return h('p', { className: 'axv-doc-p', 'data-axv': 'doc-paragraph', 'data-doc-index': index },
+          renderInline(String(block.text ?? ''), `dp-${index}`))
+      }
+      if (type === 'list') {
+        const items = Array.isArray(block.items) ? block.items : []
+        return h(block.ordered === true ? 'ol' : 'ul', {
+          className: 'axv-doc-list',
+          'data-axv': 'doc-list',
+          'data-doc-index': index,
+        }, items.map((item, itemIndex) => h('li', { key: itemIndex }, renderInline(String(item ?? ''), `dl-${index}-${itemIndex}`))))
+      }
+      if (type === 'table') {
+        const rows = Array.isArray(block.rows) ? block.rows : []
+        const header = block.header === true
+        return h('div', { className: 'axv-doc-tablewrap', 'data-axv': 'doc-table', 'data-doc-index': index },
+          block.caption ? h('div', { className: 'axv-doc-figcaption' }, String(block.caption)) : null,
+          h('table', { className: 'axv-doc-table' },
+            h('tbody', null, rows.map((row, rowIndex) => h('tr', { key: rowIndex },
+              (Array.isArray(row) ? row : []).map((cell, cellIndex) => h(header && rowIndex === 0 ? 'th' : 'td', { key: cellIndex },
+                renderInline(String(cell ?? ''), `dt-${index}-${rowIndex}-${cellIndex}`))))))))
+      }
+      if (type === 'figure') {
+        return h('figure', { className: 'axv-doc-figure', 'data-axv': 'doc-figure', 'data-doc-index': index },
+          block.src ? h('img', {
+            src: proxiedImage(block.src),
+            alt: String(block.caption ?? ''),
+            loading: 'lazy',
+            onError: (event) => {
+              const image = event.currentTarget
+              if (image.dataset.fallback === '1') return
+              image.dataset.fallback = '1'
+              image.src = String(block.src)
+            },
+          }) : null,
+          block.caption ? h('figcaption', { className: 'axv-doc-figcaption' }, String(block.caption)) : null)
+      }
+      if (type === 'equation') {
+        return h('div', { className: 'axv-doc-equation', 'data-axv': 'doc-equation', 'data-doc-index': index, title: String(block.latex ?? '') }, mathText(block.latex))
+      }
+      if (type === 'quote') {
+        return h('blockquote', { className: 'axv-doc-quote', 'data-doc-index': index }, String(block.text ?? ''))
+      }
+      if (typeof block.text === 'string' && block.text !== '') {
+        return h('p', { className: 'axv-doc-p', 'data-doc-index': index }, renderInline(block.text, `dx-${index}`))
+      }
+      return null
+    }
+
+    function DocView({ doc, t }) {
+      const blocks = doc !== null && doc !== undefined && Array.isArray(doc.blocks) ? doc.blocks : []
+      const nodes = []
+      for (let index = 0; index < blocks.length; index += 1) {
+        const node = h(DocBlock, { key: index, block: blocks[index], index, t })
+        if (node !== null) nodes.push(node)
+      }
+      return h('div', { className: 'axv-doc', 'data-axv': 'doc' }, nodes)
+    }
+
+    function TocBar({ doc, onJump }) {
+      const blocks = doc !== null && doc !== undefined && Array.isArray(doc.blocks) ? doc.blocks : []
+      const headings = []
+      for (let index = 0; index < blocks.length && headings.length < 80; index += 1) {
+        const block = blocks[index]
+        if (block !== null && typeof block === 'object' && block.type === 'heading'
+          && typeof block.text === 'string' && block.text !== '') {
+          headings.push({ index, text: block.text, level: Number(block.level) || 2 })
+        }
+      }
+      const topLevel = headings.filter((heading) => heading.level <= 2)
+      const entries = (topLevel.length >= 6 ? topLevel : headings.filter((heading) => heading.level <= 3)).slice(0, 26)
+      if (entries.length < 2) return null
+      return h('div', { className: 'axv-toc', 'data-axv': 'toc' },
+        entries.map((entry) => h('button', {
+          key: entry.index,
+          type: 'button',
+          className: 'axv-toc-btn',
+          title: entry.text,
+          onClick: () => onJump(entry.index),
+        }, entry.text)))
+    }
+
     // ── the view ──────────────────────────────────────────────────────────────
     function View(props) {
       const t = props.t
@@ -1205,6 +1476,16 @@ window.__ModuleLoader__.load({
       const [textPending, setTextPending] = React.useState(false)
       const [paperText, setPaperText] = React.useState(null)
       const [viewMode, setViewMode] = React.useState('split')
+      const [doc, setDoc] = React.useState(null)
+      const [docPending, setDocPending] = React.useState(false)
+      const [paperMode, setPaperMode] = React.useState('doc')
+      const [aiTab, setAiTab] = React.useState('summary')
+      const [tocOpen, setTocOpen] = React.useState(true)
+      const [libraryOpen, setLibraryOpen] = React.useState(true)
+      const [splitRatio, setSplitRatio] = React.useState(() => {
+        const stored = readJson('dsh-arxiv.split', null)
+        return typeof stored === 'number' && stored >= 0.28 && stored <= 0.72 ? stored : 0.5
+      })
       const [importing, setImporting] = React.useState(false)
       const [status, setStatus] = React.useState('')
       const [error, setError] = React.useState(null)
@@ -1249,6 +1530,12 @@ window.__ModuleLoader__.load({
       const rootRef = React.useRef(null)
       const askRef = React.useRef(null)
       const importInputRef = React.useRef(null)
+      const panesRef = React.useRef(null)
+      const paperScrollRef = React.useRef(null)
+      const splitRatioRef = React.useRef(splitRatio)
+      React.useEffect(() => {
+        splitRatioRef.current = splitRatio
+      }, [splitRatio])
 
       React.useEffect(() => {
         aliveRef.current = true
@@ -1404,8 +1691,7 @@ window.__ModuleLoader__.load({
         }, 4000)
       }, [])
 
-      const rememberPaper = React.useCallback((entry) => {
-        setLibrary((current) => {
+      const rememberPaper = React.useCallback((entry) => {        setLibrary((current) => {
           const previous = current.find((item) => item.id === entry.id)
           const next = [
             { ...entry, pinned: previous?.pinned === true, updatedAt: Date.now() },
@@ -1452,7 +1738,7 @@ window.__ModuleLoader__.load({
           const detaching = attached !== null && attached.baseId === paper.baseId
           const result = await faces.attach(sessionId, detaching ? null : paper.id)
           if (aliveRef.current) setAttached(result ?? null)
-          showNotice(result === null || result === undefined ? t('detach') : t('attached'))
+          showNotice(result === null || result === undefined ? '已取消挂载' : t('attached'))
         } catch (failure) {
           showError(failure.code, failure.message)
         }
@@ -1510,6 +1796,7 @@ window.__ModuleLoader__.load({
           showError('model-missing', t('needModel'))
           return
         }
+        setAiTab('summary')
         summaryAbortRef.current?.abort()
         const controller = new AbortController()
         summaryAbortRef.current = controller
@@ -1618,6 +1905,8 @@ window.__ModuleLoader__.load({
         setTextInfo(null)
         setTextPending(false)
         setPaperText(null)
+        setDoc(null)
+        setDocPending(true)
         setSummaryText('')
         setSummaryPhase('idle')
         setSummarySource(null)
@@ -1652,6 +1941,22 @@ window.__ModuleLoader__.load({
             }
             return null
           })
+        // Structured paper document for the reading pane (falls back to the
+        // extracted plain text when the host/doc route is unavailable).
+        const docPromise = getJson('doc', { id: input }, controller.signal)
+          .then((body) => {
+            if (importRef.current !== controller) return null
+            if (aliveRef.current) {
+              setDocPending(false)
+              setDoc(cleanDoc(body))
+            }
+            return body
+          })
+          .catch(() => {
+            if (importRef.current === controller && aliveRef.current) setDocPending(false)
+            return null
+          })
+        void docPromise
         const stale = () => !aliveRef.current || importRef.current !== controller
         try {
           const body = await getJson('meta', { id: input }, controller.signal)
@@ -1756,6 +2061,7 @@ window.__ModuleLoader__.load({
         qaBufferRef.current = ''
         setQuestion('')
         setError(null)
+        setAiTab('qa')
         setQaStreaming(true)
         const history = messages.slice(-6)
           .filter((message) => typeof message.content === 'string' && message.content !== '' && !message.error)
@@ -1893,6 +2199,37 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
+      const applySplit = React.useCallback((clientX) => {
+        const panes = panesRef.current
+        if (panes === null) return
+        const rect = panes.getBoundingClientRect()
+        if (rect.width < 40) return
+        const ratio = Math.min(0.72, Math.max(0.28, (clientX - rect.left) / rect.width))
+        setSplitRatio(ratio)
+        splitRatioRef.current = ratio
+      }, [])
+
+      const onSplitterPointerDown = React.useCallback((event) => {
+        event.preventDefault()
+        const move = (moveEvent) => applySplit(moveEvent.clientX)
+        const up = () => {
+          document.removeEventListener('pointermove', move)
+          document.removeEventListener('pointerup', up)
+          writeJson('dsh-arxiv.split', splitRatioRef.current)
+        }
+        document.addEventListener('pointermove', move)
+        document.addEventListener('pointerup', up)
+      }, [applySplit])
+
+      const jumpToBlock = React.useCallback((index) => {
+        const pane = paperScrollRef.current
+        if (pane === null) return
+        const target = pane.querySelector(`[data-doc-index="${index}"]`)
+        if (target !== null && typeof target.scrollIntoView === 'function') {
+          target.scrollIntoView({ block: 'start', behavior: 'smooth' })
+        }
+      }, [])
+
       const SOURCE_DISPLAY_LIMIT = 150000
       const sourceTruncated = paperText !== null && paperText.length > SOURCE_DISPLAY_LIMIT
       const displaySource = paperText === null
@@ -1922,197 +2259,272 @@ window.__ModuleLoader__.load({
       const disabled = !modelReady || importing
 
       return h('div', { className: 'axv-root', 'data-axv': 'root', ref: rootRef },
-        h('div', { className: 'axv-inner' },
-          h('header', { className: 'axv-head' },
+        h('div', { className: 'axv-shell' },
+          h('div', { className: 'axv-topbar', 'data-axv': 'topbar' },
             h('div', { className: 'axv-brand' },
               h(IconDoc),
               h('span', { className: 'axv-brand-name' }, t('tab')),
-              h('span', { className: 'axv-brand-sub' }, t('brandSub'))),
+              paper === null ? h('span', { className: 'axv-brand-sub' }, t('brandSub')) : null),
+            paper !== null ? h('div', { className: 'axv-paper-info' },
+              h('span', { className: 'axv-paper-title', 'data-axv': 'title', title: paper.title }, paper.title),
+              paper.primaryCategory ? h('span', { className: 'axv-tag' }, paper.primaryCategory) : null) : null,
             h('span', { className: 'axv-spacer' }),
-            h(SessionPicker, {
-              t,
-              sessions,
-              currentId: targetSessionId,
-              onSelect: (id) => {
-                setTargetSessionId(id)
-                writeJson(TARGET_SESSION_KEY, id)
-              },
-              disabled: importing,
-            }),
-            modelState.failed ? null : h(ModelPicker, {
-              t,
-              groups: modelState.groups,
-              current: modelState.current,
-              onSelect: onPickModel,
-              disabled: importing,
-            })),
-          h('div', { className: 'axv-search' },
-            h('input', {
-              className: 'axv-input',
-              'data-axv': 'query',
-              ref: importInputRef,
-              placeholder: t('queryPlaceholder'),
-              value: query,
-              spellCheck: false,
-              autoComplete: 'off',
-              disabled: importing,
-              onChange: (event) => setQuery(event.target.value),
-              onKeyDown: (event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault()
-                  void importPaper(query)
-                }
-              },
-            }),
-            h('button', {
-              type: 'button',
-              className: 'axv-btn axv-btn-primary',
-              'data-axv': 'import',
-              disabled: importing || query.trim() === '',
-              onClick: () => void importPaper(query),
-            }, importing ? t('importing') : t('import'))),
-          recents.length > 0 ? h('div', { className: 'axv-recent' },
-            h('span', { className: 'axv-kv' }, t('recent')),
-            recents.map((item) => h('button', {
-              key: item.id,
-              type: 'button',
-              className: 'axv-chip',
-              title: `${item.id} ${item.title}`,
-              onClick: () => void importPaper(item.id),
-            }, item.id))) : null,
-          library.length > 0
-            ? h(LibraryChips, {
-              t,
-              items: library,
-              currentId: paper !== null ? paper.id : null,
-              onOpen: (id) => void importPaper(id),
-              onTogglePin: togglePin,
-            })
-            : null,
-          paper !== null ? h('div', { className: 'axv-actions' },
-            h('button', {
-              type: 'button',
-              className: 'axv-attach',
-              'data-axv': 'attach',
-              'data-attached': attached !== null && attached.baseId === paper.baseId ? 'true' : 'false',
-              'aria-pressed': attached !== null && attached.baseId === paper.baseId,
-              title: t('attachHint'),
-              disabled: importing || !sessionId,
-              onClick: () => void toggleAttach(),
-            },
-            h('span', { className: 'axv-attach-dot' }),
-            attached !== null && attached.baseId === paper.baseId ? t('attached') : t('attach')),
-            h('button', {
-              type: 'button',
-              className: 'axv-btn axv-btn-outline',
-              'data-axv': 'send-agent',
-              title: attached !== null && attached.baseId === paper.baseId ? t('agentReadable') : t('attachHint'),
-              disabled: !sessionId || typeof faces.sendPrompt !== 'function',
-              onClick: () => sendPaperToAgent(),
-            }, t('sendAgent')),
-            h('button', {
-              type: 'button',
-              className: 'axv-btn axv-btn-ghost',
-              onClick: () => { if (typeof faces.openConversation === 'function') faces.openConversation() },
-            }, t('backConversation')),
-            notice !== '' ? h('span', { className: 'axv-toast', 'data-axv': 'notice' }, notice) : null,
-            h('span', { className: 'axv-spacer' }),
-            textInfo !== null ? h('span', { className: 'axv-section-caption' },
-              `${sourceLabel(t, textInfo.source)} · ${fmtNumber(textInfo.chars)} 字`) : null)
-            : null,
-          error !== null ? h('div', { className: 'axv-error', 'data-axv': 'error', role: 'alert' }, error) : null,
-          status !== '' ? h('div', { className: 'axv-status', 'data-axv': 'status' },
-            (importing || textPending) ? h('span', { className: 'axv-dot' }) : null,
-            h('span', null, status)) : null,
-          paper === null
-            ? h('div', { className: 'axv-empty' },
-              h('div', { className: 'axv-empty-title' }, t('emptyTitle')),
-              h('div', { className: 'axv-empty-sub' }, t('emptySub')),
-              h('div', { className: 'axv-examples' },
-                h('span', { className: 'axv-kv' }, t('examples')),
-                [
-                  { id: '1706.03762', title: 'Attention Is All You Need' },
-                  { id: '2005.14165', title: 'Language Models are Few-Shot Learners' },
-                  { id: '2401.12345', title: 'arXiv 示例' },
-                ].map((item) => h('button', {
-                  key: item.id,
-                  type: 'button',
-                  className: 'axv-example',
-                  onClick: () => void importPaper(item.id),
+            h('div', { className: 'axv-top-actions' },
+              h(SessionPicker, {
+                t,
+                sessions,
+                currentId: targetSessionId,
+                onSelect: (id) => {
+                  setTargetSessionId(id)
+                  writeJson(TARGET_SESSION_KEY, id)
                 },
-                h('span', { className: 'axv-example-id' }, item.id),
-                h('span', { className: 'axv-example-title' }, item.title)))))
-            : h(React.Fragment, null,
-              h('article', { className: 'axv-card' },
-                h('div', { className: 'axv-paper-head' },
-                  h('h2', { className: 'axv-paper-title', 'data-axv': 'title' }, paper.title),
-                  h('div', { className: 'axv-paper-meta' },
-                    fmtAuthors(paper.authors) !== '' ? h('span', { className: 'axv-paper-authors' }, fmtAuthors(paper.authors)) : null,
-                    paper.published ? h('span', null, fmtDate(paper.published)) : null,
-                    paper.primaryCategory ? h('span', { className: 'axv-tag' }, paper.primaryCategory) : null,
-                    h('span', { className: 'axv-tag' }, paper.id)),
-                  h('div', { className: 'axv-links' },
-                    h('a', { className: 'axv-link', href: paper.absUrl, target: '_blank', rel: 'noreferrer noopener' }, 'abs', h(IconArrow)),
-                    h('a', { className: 'axv-link', href: paper.pdfUrl, target: '_blank', rel: 'noreferrer noopener' }, 'PDF', h(IconArrow)),
-                    h('a', { className: 'axv-link', href: paper.htmlUrl, target: '_blank', rel: 'noreferrer noopener' }, 'HTML', h(IconArrow))),
-                  paper.abstract ? h('p', { className: 'axv-abstract' }, paper.abstract) : null)),
-              h('div', { className: 'axv-modebar' },
-                h('div', { className: 'axv-seg', role: 'group', 'aria-label': t('modes') },
-                  [
-                    ['split', t('paneSplit'), 'mode-split'],
-                    ['ai', t('paneAi'), 'mode-ai'],
-                    ['source', t('paneSource'), 'mode-source'],
-                  ].map(([mode, label, hook]) => h('button', {
-                    key: mode,
-                    type: 'button',
-                    className: 'axv-seg-btn',
-                    'data-axv': hook,
-                    'data-active': viewMode === mode ? 'true' : 'false',
-                    'aria-pressed': viewMode === mode,
-                    onClick: () => setViewMode(mode),
-                  }, label))),
-                h('span', { className: 'axv-spacer' }),
-                textInfo !== null ? h('span', { className: 'axv-section-caption' },
-                  `${sourceLabel(t, textInfo.source)} · ${fmtNumber(textInfo.chars)} 字`) : null),
-              h('div', { className: `axv-workspace axv-mode-${viewMode}` },
-                h('div', { className: 'axv-pane axv-ai-pane', ref: aiPaneRef },
-                  h(SummarySection, {
-                    t,
-                    text: summaryText,
-                    phase: summaryPhase,
-                    source: summarySource,
-                    modelLabel: summaryModel
-                      ? currentModelName(modelState.groups, summaryModel) || summaryModel.model
-                      : null,
-                    cached: summaryCached,
-                    canUpgrade,
-                    reasoning: summaryReasoning,
-                    staleModel: staleModel !== null && summaryText !== '' ? staleModel : null,
-                    copied,
-                    onGenerate: () => void startSummary(paper),
-                    onStop: stopSummary,
-                    onUpgrade: () => void startSummary(paper, { quality: 'deep' }),
-                    onCopy: () => void copySummary(),
-                  }),
-                  h(QaSection, {
-                    t,
-                    paper,
-                    messages,
-                    question,
-                    onQuestion: setQuestion,
-                    onAsk: (preset) => void ask(preset),
-                    onStop: stopAsk,
-                    streaming: qaStreaming,
-                    askRef,
-                    listRef,
-                    disabled,
-                  })),
-                h('div', { className: 'axv-pane axv-source-pane', 'data-axv': 'source' },
+                disabled: importing,
+              }),
+              modelState.failed ? null : h(ModelPicker, {
+                t,
+                groups: modelState.groups,
+                current: modelState.current,
+                onSelect: onPickModel,
+                disabled: importing,
+              }),
+              paper !== null ? h(React.Fragment, null,
+                h('button', {
+                  type: 'button',
+                  className: 'axv-attach',
+                  'data-axv': 'attach',
+                  'data-attached': attached !== null && attached.baseId === paper.baseId ? 'true' : 'false',
+                  'aria-pressed': attached !== null && attached.baseId === paper.baseId,
+                  title: t('attachHint'),
+                  disabled: importing || !sessionId,
+                  onClick: () => void toggleAttach(),
+                },
+                h('span', { className: 'axv-attach-dot' }),
+                attached !== null && attached.baseId === paper.baseId ? t('attached') : t('attach')),
+                h('button', {
+                  type: 'button',
+                  className: 'axv-btn axv-btn-outline',
+                  'data-axv': 'send-agent',
+                  title: t('sendAgent'),
+                  disabled: !sessionId || typeof faces.sendPrompt !== 'function',
+                  onClick: () => sendPaperToAgent(),
+                }, t('sendAgent')),
+                h('button', {
+                  type: 'button',
+                  className: 'axv-btn axv-btn-outline',
+                  onClick: () => { if (typeof faces.openConversation === 'function') faces.openConversation() },
+                }, t('backConversation'))) : null,
+              h('button', {
+                type: 'button',
+                className: 'axv-btn axv-btn-ghost axv-library-toggle',
+                'data-axv': 'library-toggle',
+                onClick: () => setLibraryOpen((value) => !value),
+              }, `${t('library')}${library.length > 0 ? ` (${library.length})` : ''}`))),
+          h('div', { className: 'axv-import-row' },
+            h('div', { className: 'axv-import' },
+              h('input', {
+                className: 'axv-input',
+                'data-axv': 'query',
+                ref: importInputRef,
+                placeholder: t('queryPlaceholder'),
+                value: query,
+                spellCheck: false,
+                autoComplete: 'off',
+                disabled: importing,
+                onChange: (event) => setQuery(event.target.value),
+                onKeyDown: (event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    void importPaper(query)
+                  }
+                },
+              }),
+              h('button', {
+                type: 'button',
+                className: 'axv-btn axv-btn-primary',
+                'data-axv': 'import',
+                disabled: importing || query.trim() === '',
+                onClick: () => void importPaper(query),
+              }, importing ? t('importing') : t('import'))),
+            h('span', { className: 'axv-spacer' }),
+            paper !== null ? h('div', { className: 'axv-tabs', role: 'group', 'aria-label': t('modes') },
+              [
+                ['split', t('paneSplit'), 'mode-split'],
+                ['ai', t('paneAi'), 'mode-ai'],
+                ['source', t('paneSource'), 'mode-source'],
+              ].map(([mode, label, hook]) => h('button', {
+                key: mode,
+                type: 'button',
+                className: 'axv-tab',
+                'data-axv': hook,
+                'data-active': viewMode === mode ? 'true' : 'false',
+                'aria-pressed': viewMode === mode,
+                onClick: () => setViewMode(mode),
+              }, label))) : null),
+          h('div', { className: 'axv-meta-row' },
+            error !== null ? h('div', { className: 'axv-error', 'data-axv': 'error', role: 'alert' }, error) : null,
+            status !== '' || importing || textPending || docPending ? h('div', { className: 'axv-status', 'data-axv': 'status' },
+              (importing || textPending || docPending) ? h('span', { className: 'axv-dot' }) : null,
+              h('span', null, status)) : null,
+            notice !== '' ? h('span', { className: 'axv-toast', 'data-axv': 'notice' }, notice) : null),
+          libraryOpen && library.length > 0 ? h(LibraryChips, {
+            t,
+            items: library,
+            currentId: paper !== null ? paper.id : null,
+            onOpen: (id) => void importPaper(id),
+            onTogglePin: togglePin,
+          }) : null,
+          paper === null
+            ? h('div', { className: 'axv-body', 'data-axv': 'body' },
+              h('div', { className: 'axv-empty-wrap' },
+                h('div', { className: 'axv-empty' },
+                  h('div', { className: 'axv-hero-main' },
+                    h('div', { className: 'axv-empty-title' }, t('emptyTitle')),
+                    h('div', { className: 'axv-empty-sub' }, t('emptySub')),
+                    h('div', { className: 'axv-examples' },
+                      [
+                        { id: '1706.03762', title: 'Attention Is All You Need' },
+                        { id: '2005.14165', title: 'Language Models are Few-Shot Learners' },
+                        { id: '2401.12345', title: 'arXiv 示例' },
+                      ].map((item) => h('button', {
+                        key: item.id,
+                        type: 'button',
+                        className: 'axv-example',
+                        onClick: () => void importPaper(item.id),
+                      },
+                      h('span', { className: 'axv-example-id' }, item.id),
+                      h('span', { className: 'axv-example-title' }, item.title))))),
+                  h('div', { className: 'axv-steps' },
+                    h('div', { className: 'axv-step' },
+                      h('span', { className: 'axv-step-num' }, '1'),
+                      h('div', { className: 'axv-step-body' },
+                        h('div', { className: 'axv-step-title' }, '粘一个 arXiv ID'),
+                        h('div', { className: 'axv-step-sub' }, 'abs / pdf / HTML 链接都行，自动抓全文'))),
+                    h('div', { className: 'axv-step' },
+                      h('span', { className: 'axv-step-num' }, '2'),
+                      h('div', { className: 'axv-step-body' },
+                        h('div', { className: 'axv-step-title' }, '左边 AI，右边原文'),
+                        h('div', { className: 'axv-step-sub' }, '速览 + 追问，排版按论文章节/表格/图渲染'))),
+                    h('div', { className: 'axv-step' },
+                      h('span', { className: 'axv-step-num' }, '3'),
+                      h('div', { className: 'axv-step-body' },
+                        h('div', { className: 'axv-step-title' }, '挂到会话，让 agent 一起读'),
+                        h('div', { className: 'axv-step-sub' }, 'agent 可用 arxiv 工具读正文，回答引用章节'))),
+                    h('div', { className: 'axv-hero-note' }, '面板是全局的：切换、新建会话都不会丢阅读进度。')))))
+            : h('div', { className: 'axv-body', 'data-axv': 'body' },
+              h('div', { className: `axv-panes axv-mode-${viewMode}`, 'data-axv': 'workspace', ref: panesRef },
+                h('div', {
+                  className: 'axv-pane axv-ai-pane',
+                  'data-axv': 'ai-pane',
+                  style: viewMode === 'split' ? { flexBasis: `${Math.round(splitRatio * 100)}%` } : undefined,
+                },
+                h('div', { className: 'axv-pane-head' },
+                  h('div', { className: 'axv-tabs' },
+                    h('button', {
+                      type: 'button',
+                      className: 'axv-tab',
+                      'data-axv': 'ai-tab-summary',
+                      'data-active': aiTab === 'summary' ? 'true' : 'false',
+                      onClick: () => setAiTab('summary'),
+                    }, t('summary'), summaryPhase === 'streaming' ? h('span', { className: 'axv-tab-badge' }) : null),
+                    h('button', {
+                      type: 'button',
+                      className: 'axv-tab',
+                      'data-axv': 'ai-tab-qa',
+                      'data-active': aiTab === 'qa' ? 'true' : 'false',
+                      onClick: () => setAiTab('qa'),
+                    }, t('qa'), qaStreaming ? h('span', { className: 'axv-tab-badge' }) : null)),
+                  h('span', { className: 'axv-spacer' }),
+                  h('span', { className: 'axv-section-caption' },
+                    attached !== null && attached.baseId === paper.baseId
+                      ? t('agentReadable')
+                      : (sessionId ? '未挂到当前会话' : t('needSession')))),
+                aiTab === 'summary'
+                  ? h('div', { className: 'axv-pane-scroll' },
+                    h(SummarySection, {
+                      t,
+                      text: summaryText,
+                      phase: summaryPhase,
+                      source: summarySource,
+                      modelLabel: summaryModel
+                        ? currentModelName(modelState.groups, summaryModel) || summaryModel.model
+                        : null,
+                      cached: summaryCached,
+                      canUpgrade,
+                      reasoning: summaryReasoning,
+                      hideTitle: true,
+                      staleModel: staleModel !== null && summaryText !== '' ? staleModel : null,
+                      copied,
+                      onGenerate: () => void startSummary(paper),
+                      onStop: stopSummary,
+                      onUpgrade: () => void startSummary(paper, { quality: 'deep' }),
+                      onCopy: () => void copySummary(),
+                    }),
+                    h('div', { className: 'axv-ai-after' },
+                      h('button', {
+                        type: 'button',
+                        className: 'axv-btn axv-btn-outline',
+                        'data-axv': 'continue-qa',
+                        onClick: () => {
+                          setAiTab('qa')
+                          window.setTimeout(() => { askRef.current?.focus?.() }, 30)
+                        },
+                      }, '继续追问这篇论文 →')))
+                  : h('div', { className: 'axv-pane-body' },
+                    h(QaSection, {
+                      t,
+                      paper,
+                      messages,
+                      question,
+                      onQuestion: setQuestion,
+                      onAsk: (preset) => void ask(preset),
+                      onStop: stopAsk,
+                      streaming: qaStreaming,
+                      askRef,
+                      listRef,
+                      disabled,
+                      hideTitle: true,
+                      fill: true,
+                    }))),
+                h('div', {
+                  className: 'axv-splitter',
+                  'data-axv': 'splitter',
+                  'data-dragging': 'false',
+                  role: 'separator',
+                  'aria-orientation': 'vertical',
+                  onPointerDown: onSplitterPointerDown,
+                  onDoubleClick: () => {
+                    setSplitRatio(0.5)
+                    splitRatioRef.current = 0.5
+                    writeJson('dsh-arxiv.split', 0.5)
+                  },
+                }),
+                h('div', { className: 'axv-pane axv-paper-pane', 'data-axv': 'paper-pane' },
                   h('div', { className: 'axv-pane-head' },
                     h('span', { className: 'axv-section-title' }, t('sourcePane')),
                     textInfo !== null ? h('span', { className: 'axv-section-caption' },
                       `${sourceLabel(t, textInfo.source)} · ${fmtNumber(textInfo.chars)} 字`) : null,
                     h('span', { className: 'axv-spacer' }),
+                    doc !== null ? h('div', { className: 'axv-tabs' },
+                      h('button', {
+                        type: 'button',
+                        className: 'axv-tab',
+                        'data-axv': 'paper-mode-doc',
+                        'data-active': paperMode === 'doc' ? 'true' : 'false',
+                        onClick: () => setPaperMode('doc'),
+                      }, '结构化'),
+                      h('button', {
+                        type: 'button',
+                        className: 'axv-tab',
+                        'data-axv': 'paper-mode-text',
+                        'data-active': paperMode === 'text' ? 'true' : 'false',
+                        onClick: () => setPaperMode('text'),
+                      }, '纯文本')) : null,
+                    doc !== null ? h('button', {
+                      type: 'button',
+                      className: 'axv-btn axv-btn-ghost',
+                      'data-axv': 'toc-toggle',
+                      onClick: () => setTocOpen((value) => !value),
+                    }, tocOpen ? '隐藏目录' : '目录') : null,
                     h('button', {
                       type: 'button',
                       className: 'axv-btn axv-btn-ghost',
@@ -2121,27 +2533,37 @@ window.__ModuleLoader__.load({
                       disabled: !sessionId || typeof faces.sendPrompt !== 'function',
                       onClick: () => sendSelectionToAgent(),
                     }, t('sendSelection')),
-                    paperText !== null && paperText !== '' ? h('button', {
+                    h('button', {
                       type: 'button',
                       className: 'axv-btn axv-btn-ghost',
                       'data-axv': 'source-copy',
                       onClick: () => void copySource(),
-                    }, h(IconCopy), sourceCopied ? t('sourceCopied') : t('copySource')) : null),
-                  paperText === null || paperText === ''
-                    ? h('div', { className: 'axv-placeholder' }, textPending ? t('sourceLoading') : t('sourceEmpty'))
-                    : h(React.Fragment, null,
-                      h(PaperText, { text: displaySource }),
-                      sourceTruncated
-                        ? h('div', { className: 'axv-placeholder' }, t('sourceTruncated', { chars: fmtNumber(SOURCE_DISPLAY_LIMIT) }))
-                        : null,
-                      h('div', { className: 'axv-kv' }, t('sourceNote'))))),
-              h('div', { className: 'axv-foot' },
-                h('span', null, 'dsh-arxiv · arXiv 内容版权归原作者所有'),
-                h('span', { className: 'axv-spacer' }),
-                modelState.failed ? h('span', null, t('modelUnavailable')) : null))))
+                      disabled: paperText === null || paperText === '',
+                    }, h(IconCopy), sourceCopied ? t('sourceCopied') : t('copySource'))),
+                  h('div', { className: 'axv-pane-scroll', 'data-axv': 'source', ref: paperScrollRef },
+                    doc === null && docPending
+                      ? h('div', { className: 'axv-doc-loading' }, h('span', { className: 'axv-dot' }), '正在结构化原文…')
+                      : null,
+                    doc !== null && paperMode === 'doc'
+                      ? h(React.Fragment, null,
+                        tocOpen ? h(TocBar, { doc, onJump: jumpToBlock }) : null,
+                        h('div', { 'data-axv': 'source-text' }, h(DocView, { doc, t })),
+                        h('div', { className: 'axv-kv' }, t('sourceNote')))
+                      : (paperText === null || paperText === ''
+                        ? h('div', { className: 'axv-placeholder' }, textPending ? t('sourceLoading') : t('sourceEmpty'))
+                        : h(React.Fragment, null,
+                          doc !== null ? h('div', { className: 'axv-kv' }, '结构化渲染不可用，显示自动提取文本') : null,
+                          h(PaperText, { text: displaySource }),
+                          sourceTruncated
+                            ? h('div', { className: 'axv-placeholder' }, t('sourceTruncated', { chars: fmtNumber(SOURCE_DISPLAY_LIMIT) }))
+                            : null,
+                          h('div', { className: 'axv-kv' }, t('sourceNote'))))))))),
+          h('div', { className: 'axv-foot' },
+            h('span', null, 'dsh-arxiv · arXiv 内容版权归原作者所有'),
+            h('span', { className: 'axv-spacer' }),
+            modelState.failed ? h('span', null, t('modelUnavailable')) : null))
     }
 
-    // ── plugin body ───────────────────────────────────────────────────────────
     function translateFor(locale) {
       if (!locale || typeof locale.register !== 'function' || typeof locale.bind !== 'function') {
         return (key) => {

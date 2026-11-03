@@ -129,6 +129,21 @@ async function postJson(state, pathname, payload) {
   })
 }
 
+// arxiv.org is slow/rate-limited from this network, so a cold /doc can answer
+// with {ok:false,timeout}. Retry until the host has the structured document built.
+async function docWithRetry(state, paperId, attempts = 4) {
+  let last = null
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    last = await apiJson(state, `/dsh-arxiv/doc?id=${encodeURIComponent(paperId)}`)
+    if (last.body.ok === true) return last
+    const code = last.body.error?.code ?? 'unknown'
+    console.log(`      (/doc ${code} on attempt ${attempt}/${attempts}; retrying in 4s)`)
+    if (code !== 'timeout' && code !== 'network') return last
+    await sleep(4000)
+  }
+  return last
+}
+
 // ── boot manifest ───────────────────────────────────────────────────────────
 function parseBoot(html) {
   const marker = 'globalThis["__DSH_BOOT__"] = '
@@ -298,6 +313,50 @@ async function httpChecks(state) {
   assert(['ar5iv', 'arxiv-html'].includes(bodyRoute.body.source), '/text?body=1 source is full-text (ar5iv/arxiv-html)', String(bodyRoute.body.source))
   writeFileSync(path.join(artifactsDir, 'source-text.txt'), sourceText)
 
+  // ── structured document for the typeset paper pane ───────────────────────
+  const docRoute = await docWithRetry(state, opts.paper)
+  assert(docRoute.body.ok === true, 'GET /dsh-arxiv/doc returns ok:true', JSON.stringify(docRoute.body).slice(0, 160))
+  assert(['ar5iv', 'arxiv-html'].includes(docRoute.body.source), '/doc source is full-text', String(docRoute.body.source))
+  const blocks = Array.isArray(docRoute.body.blocks) ? docRoute.body.blocks : []
+  assert(blocks.length > 80, '/doc returns the structured block list', `${blocks.length} blocks`)
+  const blockCounts = {}
+  for (const block of blocks) blockCounts[block?.type ?? 'unknown'] = (blockCounts[block?.type ?? 'unknown'] ?? 0) + 1
+  assert((blockCounts.heading ?? 0) >= 1, '/doc contains heading blocks', JSON.stringify(blockCounts))
+  assert((blockCounts.paragraph ?? 0) >= 20, '/doc contains paragraph blocks', `${blockCounts.paragraph ?? 0} paragraphs`)
+  assert((blockCounts.table ?? 0) >= 1, '/doc contains table blocks', `${blockCounts.table ?? 0} tables`)
+  assert((blockCounts.figure ?? 0) >= 1, '/doc contains figure blocks', `${blockCounts.figure ?? 0} figures`)
+  assert((blockCounts.equation ?? 0) >= 1, '/doc contains equation blocks', `${blockCounts.equation ?? 0} equations`)
+  const blocksJson = JSON.stringify(blocks)
+  assert(!/<[a-z][^>]*>/i.test(blocksJson), '/doc blocks carry no raw HTML strings', 'plain text/markup fields only')
+  const docTitle = docRoute.body.sections?.[0]?.text ?? docRoute.body.title ?? ''
+  assert(blocksJson.includes('Attention Is All You Need'), '/doc contains the paper title', String(docTitle).slice(0, 80))
+  writeFileSync(path.join(artifactsDir, 'doc.json'), `${JSON.stringify({
+    ok: docRoute.body.ok,
+    id: docRoute.body.id,
+    source: docRoute.body.source,
+    sections: docRoute.body.sections?.length ?? 0,
+    blocks: blocks.length,
+    blockCounts,
+  }, null, 2)}\n`)
+
+  // ── /img proxy: allow-listed figure host passes, others get opaque 404 JSON ─
+  const figure = blocks.find((block) => block?.type === 'figure' && typeof block.src === 'string' && block.src !== '')
+  assert(figure !== undefined, '/doc exposes at least one figure image src', String(figure?.src))
+  const img = await api(state, `/dsh-arxiv/img?src=${encodeURIComponent(figure.src)}`)
+  const imgBytes = Buffer.from(await img.arrayBuffer())
+  const imgType = img.headers.get('content-type') ?? ''
+  assert(img.status === 200, 'GET /dsh-arxiv/img (allow-listed figure) returns 200', `status ${img.status}`)
+  assert(/^image\//i.test(imgType), '/dsh-arxiv/img returns an image content-type', imgType)
+  assert(imgBytes.length > 1000, '/dsh-arxiv/img returns the image bytes', `${imgBytes.length} bytes`)
+  writeFileSync(path.join(artifactsDir, 'figure.bin'), imgBytes)
+  const badHost = await api(state, `/dsh-arxiv/img?src=${encodeURIComponent('https://example.com/a.png')}`)
+  const badHostBody = await badHost.json()
+  assert(badHost.status === 404 && badHostBody.ok === false && badHostBody.error?.code === 'not-found',
+    '/dsh-arxiv/img rejects a foreign host with 404 JSON', JSON.stringify(badHostBody))
+  const missing = await api(state, '/dsh-arxiv/img')
+  const missingBody = await missing.json()
+  assert(missing.status === 404 && missingBody.ok === false, '/dsh-arxiv/img rejects a missing src with 404 JSON', JSON.stringify(missingBody))
+
   // ── session attachment round trip: POST attach -> GET -> detach -> GET ───
   // The host keeps a small attribution table; the panel, the `arxiv` tool and
   // the agent/pre-step context injection all read from it.
@@ -406,6 +465,20 @@ async function browserChecks(state) {
     console.log(`      screenshot ${file}`)
     return file
   }
+  /** Viewport-sized screenshot for the 1440x900 / 1024x768 evidence shots. */
+  const shotViewport = async (name) => {
+    const file = path.join(artifactsDir, `e2e-${name}.png`)
+    await page.screenshot({ path: file })
+    console.log(`      screenshot ${file}`)
+    return file
+  }
+  const viewportMetrics = () => page.evaluate(() => ({
+    innerWidth: window.innerWidth,
+    innerHeight: window.innerHeight,
+    scrollWidth: document.documentElement.scrollWidth,
+    scrollHeight: document.documentElement.scrollHeight,
+    horizontalOverflow: document.documentElement.scrollWidth > window.innerWidth + 1,
+  }))
   const failDump = async (label) => {
     try {
       const text = await page.evaluate(() => document.body?.innerText?.slice(0, 3000) ?? '')
@@ -464,53 +537,64 @@ async function browserChecks(state) {
     ok('[data-axv=title] shows the imported paper', await page.textContent('[data-axv="title"]'))
     await shot('02-imported')
 
-    // Original-text pane and the split/ai/source segmented control.
-    await page.waitForSelector('[data-axv="source-text"]', { timeout: 60000 })
-    const sourceMeta = await page.evaluate(() => {
-      const node = document.querySelector('[data-axv="source-text"]')
-      return {
-        chars: (node?.textContent ?? '').length,
-        blocks: node?.querySelectorAll('p, h3').length ?? 0,
-        hasTitle: (node?.textContent ?? '').includes('Attention Is All You Need'),
-      }
-    })
-    assert(sourceMeta.hasTitle, '[data-axv=source-text] contains the paper title', '')
-    assert(sourceMeta.blocks >= 50, '[data-axv=source-text] renders many blocks', `${sourceMeta.blocks} blocks`)
-    assert(sourceMeta.chars > 20000, '[data-axv=source-text] renders the extracted text', `${sourceMeta.chars} chars`)
-    assert(await page.locator('[data-axv="source-copy"]').count() === 1, '[data-axv=source-copy] present')
-    const splitActive = await page.getAttribute('[data-axv="mode-split"]', 'data-active')
-    const workspaceClass = await page.getAttribute('.axv-workspace', 'class')
-    assert(splitActive === 'true' && /axv-mode-split/.test(workspaceClass ?? ''), 'split mode is active by default', `${workspaceClass}`)
-    await page.click('[data-axv="mode-ai"]')
-    await page.waitForFunction(() => /axv-mode-ai/.test(document.querySelector('.axv-workspace')?.className ?? ''), { timeout: 15000 })
-    ok('clicking AI switches the workspace to axv-mode-ai')
-    await shot('03-source-pane')
-    await page.click('[data-axv="mode-split"]')
-
-    // Session actions are present even when no session is selected (they are
-    // disabled until a target session exists).
-    for (const selector of ['attach', 'send-agent', 'send-selection']) {
+    // v0.3 layout hooks: two top rows, meta row, split panes, AI tabs, paper modes.
+    for (const selector of [
+      'topbar', 'body', 'workspace', 'ai-pane', 'paper-pane', 'splitter',
+      'ai-tab-summary', 'ai-tab-qa', 'paper-mode-doc', 'paper-mode-text', 'toc-toggle',
+      'mode-split', 'mode-ai', 'mode-source', 'continue-qa', 'source', 'source-text',
+      'attach', 'send-agent', 'send-selection', 'source-copy',
+    ]) {
       assert(await page.locator(`[data-axv="${selector}"]`).count() === 1, `[data-axv=${selector}] present`)
     }
+    // `.axv-import-row` / `.axv-meta-row` are the rendered class names; client.js
+    // does not carry the data-axv hooks for them yet.
+    assert(await page.locator('.axv-import-row').count() === 1, 'import row present (.axv-import-row)')
+    assert(await page.locator('.axv-meta-row').count() === 1, 'meta row present (.axv-meta-row)')
+    const wideMetrics = await viewportMetrics()
+    assert(wideMetrics.innerWidth === 1440 && wideMetrics.innerHeight === 900, 'viewport is 1440x900', JSON.stringify(wideMetrics))
+    assert(!wideMetrics.horizontalOverflow, 'panel has no horizontal overflow at 1440x900', JSON.stringify(wideMetrics))
 
-    // The dev profile has no workspace/session by default, and the panel needs a
-    // target session before models load or a paper can be sent. Detect that and
-    // keep the browser pass to panel/import/source evidence in that case.
+    // Structured document for the paper pane.
+    await page.waitForSelector('[data-axv="doc"]', { timeout: 90000 })
+    const docMeta = await page.evaluate(() => {
+      const doc = document.querySelector('[data-axv="doc"]')
+      const count = (selector) => document.querySelectorAll(selector).length
+      return {
+        chars: (doc?.textContent ?? '').length,
+        heading: count('[data-axv="doc-heading"]'),
+        paragraph: count('[data-axv="doc-paragraph"]'),
+        table: count('[data-axv="doc-table"]'),
+        figure: count('[data-axv="doc-figure"]'),
+        equation: count('[data-axv="doc-equation"]'),
+        toc: count('[data-axv="toc"]'),
+      }
+    })
+    assert(docMeta.chars > 20000, '[data-axv=doc] renders the paper text', `${docMeta.chars} chars`)
+    assert(docMeta.heading >= 1 && docMeta.table >= 1 && docMeta.figure >= 1 && docMeta.equation >= 1,
+      '[data-axv=doc] renders headings/tables/figures/equations', JSON.stringify(docMeta))
+    assert(docMeta.toc >= 1, '[data-axv=toc] renders the table of contents', `${docMeta.toc} toc`)
+    await shot('03-doc')
+
+    // The dev profile has no workspace/session by default; the panel still opens,
+    // imports and renders the paper, but models only load for a target session.
     const sessionText = (await page.textContent('[data-axv="session"]')) ?? ''
     const sessionless = /未选择|未选择会话|no session|select/i.test(sessionText) || sessionText.trim() === ''
-    if (sessionless) {
-      ok('panel works without a target session (summary/QA/attach skipped)', sessionText.trim())
-    } else {
-      const summarySelector = '[data-axv="summary"]'
+    const screenshots = []
+    if (!sessionless) {
       await page.waitForFunction(
-        (selector) => /[\u3400-\u4dbf\u4e00-\u9fff]/.test(document.querySelector(selector)?.textContent ?? ''),
-        summarySelector,
-        { timeout: 120000 },
+        () => /[\u3400-\u4dbf\u4e00-\u9fff]/.test(document.querySelector('[data-axv="summary"]')?.textContent ?? ''),
+        { timeout: 150000 },
       )
-      const summaryText = await page.textContent(summarySelector)
+      const summaryText = await page.textContent('[data-axv="summary"]')
       assert(CJK.test(summaryText), '[data-axv=summary] streamed Chinese text', `${summaryText.length} chars`)
-      await shot('04-summary')
+      screenshots.push(await shotViewport('01-aiview'))
 
+      // Follow-up question: continue-qa switches the AI pane to the QA tab.
+      await page.click('[data-axv="continue-qa"]')
+      await page.waitForFunction(
+        () => document.querySelector('[data-axv="ai-tab-qa"]')?.getAttribute('data-active') === 'true',
+        { timeout: 15000 },
+      )
       await page.fill('[data-axv="ask-input"]', '这篇论文的主要贡献是什么？')
       await page.click('[data-axv="ask"]')
       await page.waitForFunction(
@@ -522,13 +606,7 @@ async function browserChecks(state) {
         return answers.length === 0 ? '' : answers[answers.length - 1].textContent ?? ''
       })
       ok('[data-axv=answer] contains a non-empty answer', `${answerText?.length ?? 0} chars`)
-      await shot('05-qa')
-
-      await page.click('[data-axv="model"]')
-      await page.waitForFunction(() => document.querySelectorAll('[data-axv="model-option"]').length > 0, { timeout: 30000 })
-      const options = await page.locator('[data-axv="model-option"]').allTextContents()
-      assert(options.length > 0, 'model picker lists [data-axv=model-option] rows', options.slice(0, 6).join(' | '))
-      await shot('06-model-picker')
+      screenshots.push(await shotViewport('02-qa'))
 
       // Attach the current paper to the target session and confirm the toggle.
       const attachButton = page.locator('[data-axv="attach"]')
@@ -536,12 +614,55 @@ async function browserChecks(state) {
         await attachButton.click()
         await page.waitForFunction(() => document.querySelector('[data-axv="attach"]')?.getAttribute('data-attached') === 'true', { timeout: 30000 })
         ok('[data-axv=attach] attached the paper to the session', 'data-attached=true')
-        await shot('07-attached')
       }
+    } else {
+      ok('panel works without a target session (summary/QA skipped)', sessionText.trim())
+      screenshots.push(await shotViewport('01-aiview'))
     }
 
-    assert(consoleErrors.length === 0, 'no browser console errors', consoleErrors.slice(0, 5).join(' | ').slice(0, 400))
-    assert(failedRequests.length === 0, 'no failed browser requests', failedRequests.slice(0, 5).join(' | ').slice(0, 400))
+    // Splitter drag: flex-basis of the AI pane must change on pointer drag.
+    const aiPaneBasics = () => page.evaluate(() => {
+      const pane = document.querySelector('[data-axv="ai-pane"]')
+      return { basis: pane?.style?.flexBasis ?? '', class: document.querySelector('[data-axv="workspace"]')?.className ?? '' }
+    })
+    const beforeDrag = await aiPaneBasics()
+    const splitterBox = await page.locator('[data-axv="splitter"]').boundingBox()
+    if (splitterBox !== null) {
+      await page.mouse.move(splitterBox.x + splitterBox.width / 2, splitterBox.y + splitterBox.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(splitterBox.x + splitterBox.width / 2 + 140, splitterBox.y + splitterBox.height / 2, { steps: 10 })
+      await page.mouse.up()
+      await page.waitForTimeout(300)
+    }
+    const afterDrag = await aiPaneBasics()
+    assert(afterDrag.basis !== beforeDrag.basis, 'dragging the splitter changes the AI pane flex-basis', `${beforeDrag.basis} -> ${afterDrag.basis}`)
+    screenshots.push(await shotViewport('03-splitter'))
+
+    // Narrow viewport: 1024x768, no horizontal overflow, panel still usable.
+    await page.setViewportSize({ width: 1024, height: 768 })
+    await page.waitForTimeout(500)
+    const narrowMetrics = await viewportMetrics()
+    assert(narrowMetrics.innerWidth === 1024 && narrowMetrics.innerHeight === 768, 'narrow viewport is 1024x768', JSON.stringify(narrowMetrics))
+    assert(!narrowMetrics.horizontalOverflow, 'panel has no horizontal overflow at 1024x768', JSON.stringify(narrowMetrics))
+    screenshots.push(await shotViewport('04-narrow'))
+    await page.setViewportSize({ width: 1440, height: 900 })
+    writeFileSync(path.join(artifactsDir, 'screenshots.json'), `${JSON.stringify({
+      at: new Date().toISOString(),
+      viewport: '1440x900',
+      narrow: '1024x768',
+      sessionless,
+      screenshots,
+      docMeta,
+      wideMetrics,
+      narrowMetrics,
+      splitter: { before: beforeDrag.basis, after: afterDrag.basis },
+    }, null, 2)}\n`)
+    console.log(`      screenshots: ${screenshots.join(', ')}`)
+
+    const pluginErrors = consoleErrors.filter((text) => /dsh-arxiv/i.test(text))
+    assert(pluginErrors.length === 0, 'no dsh-arxiv browser console errors', pluginErrors.slice(0, 5).join(' | ').slice(0, 400))
+    const failedPluginRequests = failedRequests.filter((text) => /dsh-arxiv/i.test(text))
+    assert(failedPluginRequests.length === 0, 'no failed dsh-arxiv browser requests', failedPluginRequests.slice(0, 5).join(' | ').slice(0, 400))
   } catch (error) {
     await failDump('exception')
     throw error

@@ -129,7 +129,7 @@ function createHost(llm, options = {}) {
     }
   }
   apply(ctx, {})
-  assert.equal(routes.size, 5, 'expected the five exact host routes')
+  assert.equal(routes.size, 7, 'expected the seven exact host routes')
   return routes
 }
 
@@ -196,6 +196,7 @@ function fakeResponse() {
   response.statusCode = 200
   response.headers = {}
   response.chunks = []
+  response.rawChunks = []
   response.writableEnded = false
   response.destroyed = false
   response.headersSent = false
@@ -208,11 +209,15 @@ function fakeResponse() {
   response.write = (chunk) => {
     if (response.writableEnded) return false
     response.chunks.push(String(chunk))
+    response.rawChunks.push(Buffer.from(chunk))
     response.headersSent = true
     return true
   }
   response.end = (chunk) => {
-    if (chunk !== undefined) response.chunks.push(String(chunk))
+    if (chunk !== undefined) {
+      response.chunks.push(String(chunk))
+      response.rawChunks.push(Buffer.from(chunk))
+    }
     if (!response.writableEnded) {
       response.writableEnded = true
       response.emit('close')
@@ -307,6 +312,21 @@ async function withArxivNetwork(run, { ar5iv = AR5IV_HTML, abs = ABS_HTML, html 
   }
 }
 
+/** Run with a custom fetch handler (used by the image proxy tests). */
+async function withFetchMock(run, handler) {
+  const original = globalThis.fetch
+  const calls = []
+  globalThis.fetch = async (url, options) => {
+    calls.push(String(url))
+    return handler(String(url), options)
+  }
+  try {
+    return await run(calls)
+  } finally {
+    globalThis.fetch = original
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Health
 // ---------------------------------------------------------------------------
@@ -316,7 +336,7 @@ test('GET /dsh-arxiv/health reports the plugin', async () => {
   const response = await invoke(routes, '/dsh-arxiv/health')
   assert.equal(response.statusCode, 200)
   assert.match(String(response.headers['content-type']), /application\/json/)
-  assert.deepEqual(jsonBody(response), { ok: true, name: 'dsh-arxiv', version: '0.2.0' })
+  assert.deepEqual(jsonBody(response), { ok: true, name: 'dsh-arxiv', version: '0.3.0' })
 })
 
 // ---------------------------------------------------------------------------
@@ -840,7 +860,7 @@ test('apply tolerates a missing tools service when ctx.inject is unavailable', (
   const routes = createHost(fakeLlm([]), { tools: null, inject: false })
   assert.equal(routes.toolDefinitions.length, 0)
   assert.deepEqual(routes.injectCalls, [])
-  assert.equal(routes.size, 5)
+  assert.equal(routes.size, 7)
 })
 
 test('arxiv tool current reads the paper attached to the calling session', async () => {
@@ -1043,5 +1063,226 @@ test('pre-step stops injecting after the paper is detached', async () => {
     await attachPaper(routes, 'session-1', null)
     const afterDetach = await handler(preStepEvent('session-1'), async () => enterDecision())
     assert.deepEqual(afterDetach.messages, [])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// v0.3: structured document route
+// ---------------------------------------------------------------------------
+
+test('GET /doc returns ar5iv structured blocks in reading order', async () => {
+  const routes = createHost(fakeLlm([]))
+  await withArxivNetwork(async () => {
+    const response = await invoke(routes, '/dsh-arxiv/doc', { url: '/dsh-arxiv/doc?id=1706.03762' })
+    assert.equal(response.statusCode, 200)
+    const body = jsonBody(response)
+    assert.equal(body.ok, true)
+    assert.equal(body.id, '1706.03762v7')
+    assert.equal(body.source, 'ar5iv')
+
+    const types = new Set(body.blocks.map((block) => block.type))
+    for (const type of ['heading', 'paragraph', 'list', 'table', 'figure', 'equation']) {
+      assert.ok(types.has(type), `expected a ${type} block`)
+    }
+    for (const block of body.blocks) {
+      assert.ok(['heading', 'paragraph', 'list', 'table', 'figure', 'equation', 'quote'].includes(block.type))
+      if (block.type === 'heading') assert.ok(block.level >= 1 && block.level <= 4)
+      if (block.type === 'figure') assert.match(block.src, /^https:\/\//)
+    }
+
+    // Sections preserve the heading hierarchy.
+    const titles = body.sections.map((section) => section.title)
+    assert.equal(titles[0], 'Attention Is All You Need')
+    const introduction = body.sections.find((section) => section.title === '1 Introduction')
+    assert.ok(introduction)
+    assert.equal(introduction.level, 2)
+    assert.ok(body.sections.some((section) => section.level === 3 && section.title.includes('Encoder and Decoder Stacks')))
+    assert.ok(body.sections.some((section) => section.level === 4 && section.title.includes('Scaled Dot-Product')))
+
+    // Inline math survives as $...$ and paragraphs are merged text.
+    const abstract = body.blocks.find((block) => block.type === 'paragraph' && block.text.includes('dominant sequence'))
+    assert.ok(abstract)
+    const mathParagraph = body.blocks.find((block) => block.type === 'paragraph' && block.text.includes('$'))
+    assert.ok(mathParagraph, 'expected inline math as $...$')
+    assert.ok(!mathParagraph.text.includes('<math'), 'no raw HTML in block text')
+
+    // List.
+    const list = body.blocks.find((block) => block.type === 'list')
+    assert.equal(list.ordered, false)
+    assert.equal(list.items.length, 3)
+    assert.ok(list.items[0].includes('encoder-decoder attention'))
+
+    // Table: caption, header flag and row/cell text with inline math.
+    const table = body.blocks.find((block) => block.type === 'table')
+    assert.equal(table.header, true)
+    assert.ok(table.caption.includes('Maximum path lengths'))
+    assert.deepEqual(table.rows[0], ['Layer Type', 'Complexity per Layer', 'Sequential', 'Maximum Path Length'])
+    assert.ok(table.rows.some((row) => row.includes('Self-Attention')))
+    assert.ok(table.rows.some((row) => row.some((cell) => cell.includes('$O(n'))))
+
+    // Figures: absolute ar5iv URLs, caption preserved.
+    const figures = body.blocks.filter((block) => block.type === 'figure')
+    assert.ok(figures.length >= 2)
+    for (const figure of figures) {
+      assert.match(figure.src, /^https:\/\/ar5iv\.labs\.arxiv\.org\/html\/1706\.03762\//)
+      assert.ok(!figure.src.includes('/html/html/'))
+    }
+    assert.ok(figures.some((figure) => figure.caption && figure.caption.includes('model architecture')))
+
+    // Display equations.
+    const equations = body.blocks.filter((block) => block.type === 'equation')
+    assert.ok(equations.length >= 4)
+    assert.ok(equations.some((equation) => equation.latex.includes('Attention')))
+    for (const equation of equations) {
+      assert.equal(equation.display, true)
+      assert.equal(typeof equation.latex, 'string')
+    }
+
+    // References and everything after them are removed.
+    assert.ok(!body.blocks.some((block) => JSON.stringify(block).includes('arXiv preprint arXiv:1607.06450')))
+  })
+})
+
+test('GET /doc caches the structured document per paper', async () => {
+  const routes = createHost(fakeLlm([]))
+  await withArxivNetwork(async (calls) => {
+    const first = jsonBody(await invoke(routes, '/dsh-arxiv/doc', { url: '/dsh-arxiv/doc?id=1706.03762' }))
+    const second = jsonBody(await invoke(routes, '/dsh-arxiv/doc', { url: '/dsh-arxiv/doc?id=https://arxiv.org/abs/1706.03762v7' }))
+    assert.deepEqual(second.blocks, first.blocks)
+    const ar5ivFetches = calls.filter((url) => url.includes('ar5iv.labs.arxiv.org/html'))
+    assert.equal(ar5ivFetches.length, 1, 'the second doc request must hit the cache')
+  })
+})
+
+test('GET /doc falls back to arxiv.org/html', async () => {
+  const routes = createHost(fakeLlm([]))
+  await withArxivNetwork(async () => {
+    const body = jsonBody(await invoke(routes, '/dsh-arxiv/doc', { url: '/dsh-arxiv/doc?id=1706.03762' }))
+    assert.equal(body.ok, true)
+    assert.equal(body.source, 'arxiv-html')
+    assert.ok(body.blocks.some((block) => block.type === 'table'))
+    const figure = body.blocks.find((block) => block.type === 'figure')
+    assert.match(figure.src, /^https:\/\/arxiv\.org\/html\/1706\.03762\//)
+  }, { ar5iv: null, html: AR5IV_HTML })
+})
+
+test('GET /doc falls back to an abstract document', async () => {
+  const routes = createHost(fakeLlm([]))
+  await withArxivNetwork(async () => {
+    const body = jsonBody(await invoke(routes, '/dsh-arxiv/doc', { url: '/dsh-arxiv/doc?id=1706.03762' }))
+    assert.equal(body.ok, true)
+    assert.equal(body.source, 'abstract')
+    assert.deepEqual(body.sections, [{ level: 1, title: 'Attention Is All You Need' }])
+    assert.deepEqual(body.blocks.map((block) => block.type), ['heading', 'paragraph'])
+    assert.equal(body.blocks[1].text, ABSTRACT)
+  }, { ar5iv: null, html: null })
+})
+
+test('GET /doc rejects an invalid id', async () => {
+  const routes = createHost(fakeLlm([]))
+  const body = jsonBody(await invoke(routes, '/dsh-arxiv/doc', { url: '/dsh-arxiv/doc?id=not-an-id' }))
+  assert.equal(body.ok, false)
+  assert.equal(body.error.code, 'bad-id')
+})
+
+test('GET /doc caps blocks at 2000 and keeps every section', async () => {
+  const routes = createHost(fakeLlm([]))
+  const sectionCount = 1200
+  const parts = []
+  for (let index = 0; index < sectionCount; index += 1) {
+    parts.push(`<h2>Section ${index}</h2><p>Paragraph ${index}</p>`)
+  }
+  const bigHtml = `<html><body>${parts.join('')}</body></html>`
+  await withArxivNetwork(async () => {
+    const body = jsonBody(await invoke(routes, '/dsh-arxiv/doc', { url: '/dsh-arxiv/doc?id=1706.03762' }))
+    assert.equal(body.blocks.length, 2000)
+    assert.equal(body.sections.length, sectionCount)
+    assert.equal(body.sections[sectionCount - 1].title, `Section ${sectionCount - 1}`)
+  }, { ar5iv: bigHtml })
+})
+
+// ---------------------------------------------------------------------------
+// v0.3: allow-listed image proxy
+// ---------------------------------------------------------------------------
+
+const IMAGE_URL = 'https://ar5iv.labs.arxiv.org/html/1706.03762/assets/Figures/ModalNet-21.png'
+const IMAGE_ROUTE = `/dsh-arxiv/img?src=${encodeURIComponent(IMAGE_URL)}`
+
+test('GET /img proxies an allow-listed ar5iv image', async () => {
+  const routes = createHost(fakeLlm([]))
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01, 0x02, 0x03, 0x04])
+  await withFetchMock(async (calls) => {
+    const response = await invoke(routes, '/dsh-arxiv/img', { url: IMAGE_ROUTE })
+    assert.equal(response.statusCode, 200)
+    assert.equal(response.headers['content-type'], 'image/png')
+    assert.equal(response.headers['cache-control'], 'public, max-age=3600')
+    assert.equal(Number(response.headers['content-length']), png.length)
+    assert.deepEqual(Buffer.concat(response.rawChunks), png)
+    assert.equal(calls.length, 1)
+    assert.ok(calls[0].startsWith('https://ar5iv.labs.arxiv.org/'))
+  }, () => new Response(png, { status: 200, headers: { 'content-type': 'image/png' } }))
+})
+
+test('GET /img rejects non-https, non-allow-listed and malformed sources', async () => {
+  const routes = createHost(fakeLlm([]))
+  await withFetchMock(async (calls) => {
+    const sources = [
+      'http://ar5iv.labs.arxiv.org/x.png',
+      'https://evil.example/x.png',
+      'https://arxiv.org.evil.example/x.png',
+      'file:///etc/passwd',
+      'javascript:alert(1)',
+      '',
+    ]
+    for (const source of sources) {
+      const response = await invoke(routes, '/dsh-arxiv/img', {
+        url: `/dsh-arxiv/img?src=${encodeURIComponent(source)}`,
+      })
+      assert.equal(response.statusCode, 404, `expected 404 for ${source}`)
+      const body = jsonBody(response)
+      assert.equal(body.ok, false)
+      assert.equal(body.error.code, 'not-found')
+      assert.ok(!response.chunks.join('').includes('evil.example'), 'must not echo the source URL')
+    }
+    assert.equal(calls.length, 0, 'rejected sources must never be fetched')
+  }, () => new Response('should not be fetched', { status: 200 }))
+})
+
+test('GET /img rejects non-image upstream content', async () => {
+  const routes = createHost(fakeLlm([]))
+  await withFetchMock(async () => {
+    const response = await invoke(routes, '/dsh-arxiv/img', { url: IMAGE_ROUTE })
+    assert.equal(response.statusCode, 404)
+    assert.equal(jsonBody(response).error.code, 'not-found')
+  }, () => new Response('<html>not an image</html>', {
+    status: 200,
+    headers: { 'content-type': 'text/html' },
+  }))
+})
+
+test('GET /img enforces the 8 MB cap', async () => {
+  const routes = createHost(fakeLlm([]))
+  const tooBig = new Uint8Array(8 * 1024 * 1024 + 1)
+  await withFetchMock(async () => {
+    const response = await invoke(routes, '/dsh-arxiv/img', { url: IMAGE_ROUTE })
+    assert.equal(response.statusCode, 404)
+    assert.equal(jsonBody(response).error.code, 'not-found')
+  }, () => new Response(tooBig, { status: 200, headers: { 'content-type': 'image/png' } }))
+})
+
+test('GET /img re-validates redirect hops', async () => {
+  const routes = createHost(fakeLlm([]))
+  let hops = 0
+  await withFetchMock(async () => {
+    const response = await invoke(routes, '/dsh-arxiv/img', { url: IMAGE_ROUTE })
+    assert.equal(response.statusCode, 404)
+    assert.equal(jsonBody(response).error.code, 'not-found')
+    assert.equal(hops, 1, 'only the first allow-listed hop may be fetched')
+  }, () => {
+    hops += 1
+    return new Response(null, {
+      status: 302,
+      headers: { location: 'https://evil.example/redirected.png' },
+    })
   })
 })
